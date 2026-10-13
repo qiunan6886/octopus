@@ -215,6 +215,15 @@ def main():
     md = SRC.read_text(encoding="utf-8").splitlines()
     content, toc = render(md)
 
+    # Take the page title from the document itself so it cannot drift from the
+    # version in the heading.
+    title = "Octopus"
+    for line in md:
+        m = re.match(r"^#\s+(.*)$", line)
+        if m:
+            title = re.sub(r"[*`]", "", m.group(1))
+            break
+
     # The title and the leading summary stay above the table of contents; the
     # body starts at the first section heading.
     split = content.find("<h2")
@@ -238,7 +247,7 @@ def main():
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Octopus 错题集 · 设计文档 v0.1</title>
+<title>{esc(title)}</title>
 <style>{CSS}</style>
 </head>
 <body>

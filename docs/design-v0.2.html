@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Octopus 错题集 · 设计文档（v0.2）</title>
+<style>
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink: #1c1f23;
+  --ink-soft: #5a636e;
+  --line: #e3e6ea;
+  --accent: #2f6fed;
+  --accent-soft: #eef3fe;
+  --warn: #b45309;
+  --warn-soft: #fff7ed;
+  --code-bg: #f2f4f7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c; --card: #1e2126; --ink: #e8eaed; --ink-soft: #a5adb8;
+    --line: #2e333a; --accent: #7aa7ff; --accent-soft: #1d2735;
+    --warn: #fbbf24; --warn-soft: #2a2317; --code-bg: #262a30;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; padding: 0 14px 64px;
+  background: var(--bg); color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC",
+               "Noto Sans CJK SC", sans-serif;
+  font-size: 16px; line-height: 1.8;
+}
+.wrap { max-width: 780px; margin: 0 auto; }
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px 18px; margin: 16px 0;
+}
+h1 { font-size: 1.4em; line-height: 1.4; margin: .3em 0 .5em; letter-spacing: -.01em; }
+h2 {
+  font-size: 1.22em; margin: 2em 0 .6em; padding-bottom: .35em;
+  border-bottom: 2px solid var(--accent); color: var(--accent);
+}
+h3 { font-size: 1.06em; margin: 1.6em 0 .5em; }
+h4 { font-size: 1em; margin: 1.3em 0 .4em; color: var(--ink-soft); }
+p { margin: .7em 0; }
+strong { font-weight: 650; }
+a { color: var(--accent); }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+ul, ol { padding-left: 1.35em; margin: .6em 0; }
+li { margin: .28em 0; }
+code {
+  background: var(--code-bg); border-radius: 5px; padding: .12em .38em;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: .88em; word-break: break-word;
+}
+pre {
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; overflow-x: auto; line-height: 1.5;
+}
+pre code { background: none; padding: 0; font-size: .84em; }
+blockquote {
+  margin: .9em 0; padding: .7em 1em; background: var(--accent-soft);
+  border-left: 4px solid var(--accent); border-radius: 0 8px 8px 0;
+  color: var(--ink); font-size: .96em;
+}
+blockquote p { margin: .3em 0; }
+blockquote.warn { background: var(--warn-soft); border-left-color: var(--warn); }
+.tablewrap { overflow-x: auto; margin: 1em 0; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-size: .9em; min-width: 380px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--accent-soft); font-weight: 650; }
+tbody tr:nth-child(even) { background: color-mix(in srgb, var(--line) 34%, transparent); }
+.toc { font-size: .94em; }
+.toc ol { padding-left: 1.2em; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.meta { color: var(--ink-soft); font-size: .9em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>Octopus 错题集 · 设计文档（v0.2）</h1>
+<blockquote class=''><p>状态：<strong>设计已定稿，待开发</strong></p><p>相比 v0.1：已确定全部技术选型，新增<strong>多孩子 Profile</strong>与<strong>待确认环节</strong>，</p><p>并核实了 DeepSeek 的多模态能力（决定了「图形用 LLM 生成」是否可行）</p></blockquote>
+</div>
+<div class='card toc'><h3 style='margin-top:0'>目录</h3><ol style='list-style:none;padding-left:0'><li style='margin-left:0em'><a href='#h-一-这个-App-解决什么问题'>一、这个 App 解决什么问题</a></li><li style='margin-left:1.1em'><a href='#h-目标用户'>目标用户</a></li><li style='margin-left:0em'><a href='#h-二-多孩子-Profile-核心设计'>二、多孩子 Profile（核心设计）</a></li><li style='margin-left:1.1em'><a href='#h-规则'>规则</a></li><li style='margin-left:1.1em'><a href='#h-年级的作用'>年级的作用</a></li><li style='margin-left:0em'><a href='#h-三-核心流程'>三、核心流程</a></li><li style='margin-left:0em'><a href='#h-四-功能清单'>四、功能清单</a></li><li style='margin-left:1.1em'><a href='#h-录入'>录入</a></li><li style='margin-left:1.1em'><a href='#h-题目清理-重点'>题目清理（重点）</a></li><li style='margin-left:1.1em'><a href='#h-错题库'>错题库</a></li><li style='margin-left:1.1em'><a href='#h-变式题'>变式题</a></li><li style='margin-left:1.1em'><a href='#h-打印'>打印</a></li><li style='margin-left:1.1em'><a href='#h-设置'>设置</a></li><li style='margin-left:0em'><a href='#h-五-数据模型'>五、数据模型</a></li><li style='margin-left:0em'><a href='#h-六-技术选型'>六、技术选型</a></li><li style='margin-left:1.1em'><a href='#h-OCR-双引擎-用户可选-已确认'>OCR：双引擎，用户可选（已确认）</a></li><li style='margin-left:1.1em'><a href='#h-AI-DeepSeek-已确认'>AI：DeepSeek（已确认）</a></li><li style='margin-left:0em'><a href='#h-七-题目清理怎么做-重点'>七、题目清理怎么做（重点）</a></li><li style='margin-left:1.1em'><a href='#h-题干被建模成-元素序列'>题干被建模成「元素序列」</a></li><li style='margin-left:1.1em'><a href='#h-三类元素分别怎么处理'>三类元素分别怎么处理</a></li><li style='margin-left:1.1em'><a href='#h-图形重绘的机制'>图形重绘的机制</a></li><li style='margin-left:1.1em'><a href='#h-风险与应对-重要'>风险与应对（重要）</a></li><li style='margin-left:1.1em'><a href='#h-成本-Token-机制'>成本（Token 机制）</a></li><li style='margin-left:0em'><a href='#h-八-技术难点与应对'>八、技术难点与应对</a></li><li style='margin-left:1.1em'><a href='#h-难点-1-自动切题不一定准-高风险'>难点 1：自动切题不一定准 ⚠️ 高风险</a></li><li style='margin-left:1.1em'><a href='#h-难点-2-去掉手写笔迹-中风险-已降级'>难点 2：去掉手写笔迹 ⚠️ 中风险（已降级）</a></li><li style='margin-left:1.1em'><a href='#h-难点-3-数学公式与图形-中风险'>难点 3：数学公式与图形 ⚠️ 中风险</a></li><li style='margin-left:1.1em'><a href='#h-难点-4-变式题可能出错题-中风险'>难点 4：变式题可能出错题 ⚠️ 中风险</a></li><li style='margin-left:1.1em'><a href='#h-难点-5-两个孩子的数据不能混-中风险'>难点 5：两个孩子的数据不能混 ⚠️ 中风险</a></li><li style='margin-left:1.1em'><a href='#h-难点-6-打印版式'>难点 6：打印版式</a></li><li style='margin-left:0em'><a href='#h-九-页面结构'>九、页面结构</a></li><li style='margin-left:0em'><a href='#h-十-分阶段计划'>十、分阶段计划</a></li><li style='margin-left:1.1em'><a href='#h-阶段一-能用-MVP'>阶段一：能用（MVP）</a></li><li style='margin-left:1.1em'><a href='#h-阶段二-好用'>阶段二：好用</a></li><li style='margin-left:1.1em'><a href='#h-阶段三-长期'>阶段三：长期</a></li><li style='margin-left:0em'><a href='#h-十一-已确认的决策'>十一、已确认的决策</a></li><li style='margin-left:0em'><a href='#h-十二-剩余待确认的小问题'>十二、剩余待确认的小问题</a></li><li style='margin-left:0em'><a href='#h-十三-下一步'>十三、下一步</a></li></ol></div>
+<div class="card">
+<h2 id='h-一-这个-App-解决什么问题'>一、这个 App 解决什么问题</h2>
+<p>孩子做完作业或试卷后，错题散落在纸上。想整理成错题集通常要<strong>手抄一遍</strong>——费时、字丑、还容易抄错。</p>
+<blockquote class=''><p><strong>拍几张照片 → 自动切出每道错题 → 去掉孩子写过的笔迹，还原成干净的新题 → 挑出来排版打印。</strong></p></blockquote>
+<p>核心价值是<strong>省掉手抄</strong>，并且能<strong>反复重做</strong>。</p>
+<h3 id='h-目标用户'>目标用户</h3>
+<div class='tablewrap'><table><thead><tr><th>角色</th><th>用法</th></tr></thead><tbody><tr><td><strong>家长</strong>（主要用户）</td><td>拍照、确认、挑题、打印</td></tr><tr><td>孩子</td><td>做打印出来的练习卷</td></tr></tbody></table></div>
+<p><strong>家里有两个孩子</strong>（二年级、四年级），所以<strong>必须支持多 Profile</strong>，两人的题目绝不能混。</p>
+<hr>
+<h2 id='h-二-多孩子-Profile-核心设计'>二、多孩子 Profile（核心设计）</h2>
+<p>这是 v0.2 新增的<strong>一级设计</strong>，不是附加功能。</p>
+<pre><code>Profile（孩子）
+├─ id
+├─ 姓名 / 昵称
+├─ 年级            二年级 / 四年级（影响 AI 出题难度）
+├─ 头像（可选）
+└─ 创建时间</code></pre>
+<h3 id='h-规则'>规则</h3>
+<div class='tablewrap'><table><thead><tr><th>规则</th><th>说明</th></tr></thead><tbody><tr><td><strong>题目必须归属某个 Profile</strong></td><td><code>Question.profileId</code> 是必填外键，不存在「无主」的题</td></tr><tr><td><strong>全局只有一个「当前 Profile」</strong></td><td>顶部可随时切换，切换后整个 App（列表、打印、AI 提示词）都跟着变</td></tr><tr><td><strong>不提供「全部孩子」视图</strong></td><td>避免一张卷子混进两个孩子的题。要合并打印，必须显式选择</td></tr><tr><td><strong>拍照时先选孩子</strong></td><td>录入流程的<strong>第一步</strong>就是确认「这是谁的题」，默认当前 Profile</td></tr><tr><td><strong>练习卷也归属 Profile</strong></td><td>生成后孩子姓名会印在卷子上（可关）</td></tr></tbody></table></div>
+<blockquote class=''><p>数据隔离做到<strong>存储层</strong>：所有查询都带 <code>profileId</code> 条件，而不是在界面层过滤。</p><p>这样漏掉过滤的代价是查询报错，而不是悄悄把两个孩子的题混在一起。</p></blockquote>
+<h3 id='h-年级的作用'>年级的作用</h3>
+<p>年级不只是个标签，它直接进入 AI 提示词：</p>
+<ul><li><strong>二年级</strong>：100 以内加减法、表内乘除、认识钟表/人民币、简单图形</li><li><strong>四年级</strong>：四则运算、运算定律、角度/平行垂直、三角形、条形统计图、小数</li></ul>
+<p>同一道题在不同年级的「变式题」难度不同。<strong>年级是变式题生成的关键参数。</strong></p>
+<hr>
+<h2 id='h-三-核心流程'>三、核心流程</h2>
+<pre><code>① 选孩子（默认当前 Profile）
+        ↓
+② 拍照 / 相册导入
+        ↓
+③ 自动处理（后台）
+   ├─ 版面分析 → 自动切出 N 道题
+   ├─ OCR 识别题干文字（本地或云端，按设置）
+   ├─ AI 重绘图形 / 公式（deepseek-flash 看图）
+   └─ 自动分类：学科、知识点、难度
+        ↓
+④ 待确认列表  ★ 关键环节
+   ├─ 逐题预览：原图 ↔ 重建结果 对照
+   ├─ 可编辑：改文字、换图形方案、改学科/标签、合并/拆分题目
+   ├─ 逐题「通过」或「丢弃」
+   └─ 【全部通过】一键确认
+        ↓
+⑤ 确认后才真正入库（错题库）
+        ↓
+⑥ 错题列表：筛选 + 手动选择 / 多选 / 全选
+   └─ 可在此生成变式题并加入选择
+        ↓
+⑦ 排版预览 → 一键打印（或导出 PDF）</code></pre>
+<blockquote class=''><p><strong>④ 是这个设计的核心安全阀</strong>。自动处理一定有错，所以处理结果先进「待确认」，</p><p>只有用户点过确认的题才进错题库。这样错题库里永远是可信的。</p></blockquote>
+<hr>
+<h2 id='h-四-功能清单'>四、功能清单</h2>
+<h3 id='h-录入'>录入</h3>
+<div class='tablewrap'><table><thead><tr><th>优先级</th><th>功能</th></tr></thead><tbody><tr><td>P0</td><td>选择孩子 → 拍照 / 相册导入</td></tr><tr><td>P0</td><td>手动框选切题（自动切题的兜底）</td></tr><tr><td>P0</td><td><strong>待确认列表</strong>：逐题确认后才入库</td></tr><tr><td>P0</td><td>待确认阶段编辑题干文字、删改内容</td></tr><tr><td>P1</td><td>自动切题（版面分析预切分）</td></tr><tr><td>P1</td><td>合并 / 拆分题目</td></tr><tr><td>P2</td><td>连续拍照（不退出相机）</td></tr></tbody></table></div>
+<h3 id='h-题目清理-重点'>题目清理（重点）</h3>
+<div class='tablewrap'><table><thead><tr><th>优先级</th><th>功能</th></tr></thead><tbody><tr><td>P0</td><td>OCR 识别题干文字</td></tr><tr><td>P0</td><td>编辑文字 → <strong>重新排版</strong>成干净题目</td></tr><tr><td>P0</td><td>图形/公式区域<strong>裁剪保留原图</strong></td></tr><tr><td>P1</td><td><strong>AI 重绘</strong>：把图形/公式区域交给 <code>deepseek-flash</code> 生成干净版本</td></tr><tr><td>P1</td><td>原图 ↔ AI 重绘 <strong>对照切换</strong>，用户选一个</td></tr><tr><td>P2</td><td>手动擦除笔迹（涂抹）</td></tr></tbody></table></div>
+<h3 id='h-错题库'>错题库</h3>
+<div class='tablewrap'><table><thead><tr><th>优先级</th><th>功能</th></tr></thead><tbody><tr><td>P0</td><td>列表（缩略图 + 题干摘要），<strong>按当前 Profile 隔离</strong></td></tr><tr><td>P0</td><td>手动选择 / 多选 / 全选</td></tr><tr><td>P0</td><td>按学科 / 时间筛选</td></tr><tr><td>P1</td><td>搜索题干</td></tr><tr><td>P1</td><td>标签 / 知识点</td></tr><tr><td>P1</td><td>掌握状态（未掌握 / 复习中 / 已掌握）</td></tr><tr><td>P2</td><td>统计（各科错题数、知识点分布）</td></tr></tbody></table></div>
+<h3 id='h-变式题'>变式题</h3>
+<div class='tablewrap'><table><thead><tr><th>优先级</th><th>功能</th></tr></thead><tbody><tr><td>P1</td><td>选中题目 → AI 生成 N 道同知识点、<strong>同年级难度</strong>的变式题</td></tr><tr><td>P1</td><td>生成的题<strong>可编辑</strong>，确认后才入库</td></tr><tr><td>P2</td><td>批量生成</td></tr></tbody></table></div>
+<h3 id='h-打印'>打印</h3>
+<div class='tablewrap'><table><thead><tr><th>优先级</th><th>功能</th></tr></thead><tbody><tr><td>P0</td><td>选中的题 → 排版 → <strong>一键打印</strong></td></tr><tr><td>P0</td><td>导出 PDF</td></tr><tr><td>P1</td><td>版式选项：答题空间、题号/姓名/日期、是否附答案</td></tr><tr><td>P2</td><td>练习卷模板</td></tr></tbody></table></div>
+<h3 id='h-设置'>设置</h3>
+<div class='tablewrap'><table><thead><tr><th>优先级</th><th>功能</th></tr></thead><tbody><tr><td>P0</td><td><strong>Profile 管理</strong>（增删改、切换）</td></tr><tr><td>P0</td><td><strong>OCR 引擎选择</strong>：本地 / 云端</td></tr><tr><td>P0</td><td>DeepSeek API Key 配置</td></tr><tr><td>P1</td><td>云端 OCR 的供应商与 Key 配置</td></tr><tr><td>P1</td><td>打印默认版式</td></tr><tr><td>P2</td><td>数据备份 / 导出</td></tr></tbody></table></div>
+<hr>
+<h2 id='h-五-数据模型'>五、数据模型</h2>
+<pre><code>Profile（孩子）★ 一级实体
+├─ id, 姓名, 年级, 头像, 创建时间
+└─ 所有业务的根
+
+Question（错题）
+├─ id
+├─ ★ profileId          必填，决定归属
+├─ 题干文本             OCR + 人工编辑后的结果
+├─ 题干元素[]           文字段 / 图形段 / 公式段（见下）
+├─ 原始裁剪图路径        切题时裁下的原图，永远保留
+├─ 图形处理方式          keepOriginal | aiRedrawn
+├─ 学科 / 知识点标签[] / 难度
+├─ 来源（哪张卷子）/ 来源照片 id
+├─ 掌握状态 / 复习次数 / 创建时间
+└─ 变式题关系[]
+
+QuestionElement（题干的组成单元）
+├─ 类型                 text | figure | formula
+├─ 文字内容             type=text 时
+├─ 图片路径             type=figure 时的原图裁剪
+├─ SVG / LaTeX 源码     AI 重绘后的结果
+├─ 采用的方案           original | ai
+└─ 顺序                在题干中的位置
+
+IntakeBatch（一次录入）★「待确认」的载体
+├─ id, profileId, 创建时间
+├─ 来源照片[]
+└─ 状态                 processing | reviewing | done
+
+DraftQuestion（待确认的题）
+├─ id, batchId
+├─ 原始裁剪图
+├─ 自动处理结果（文字 / 图形 / 公式 / 建议分类）
+├─ 用户编辑后的版本
+└─ 审核状态             pending | accepted | discarded
+
+Worksheet（练习卷）
+├─ id, profileId, 名称
+├─ 题目列表[] + 顺序
+├─ 版式设置
+└─ 导出 PDF 路径</code></pre>
+<hr>
+<h2 id='h-六-技术选型'>六、技术选型</h2>
+<div class='tablewrap'><table><thead><tr><th>项</th><th>选择</th></tr></thead><tbody><tr><td><strong>框架</strong></td><td><strong>Flutter</strong>（已确认）</td></tr><tr><td>平台</td><td>Android（minSdk 26）</td></tr><tr><td>状态管理</td><td>Riverpod</td></tr><tr><td>本地存储</td><td>SQLite（<code>drift</code>）+ 图片文件</td></tr><tr><td>打印</td><td><code>pdf</code> + <code>printing</code></td></tr><tr><td>SVG 渲染</td><td><code>flutter_svg</code></td></tr></tbody></table></div>
+<h3 id='h-OCR-双引擎-用户可选-已确认'>OCR：双引擎，用户可选（已确认）</h3>
+<pre><code>abstract class OcrEngine {
+  String get id;
+  Future&lt;OcrResult&gt; recognize(Uint8List image);   // 文字 + 版面块
+}
+
+class LocalPaddleOcrEngine implements OcrEngine { ... }   // PaddleOCR，离线
+class CloudOcrEngine implements OcrEngine { ... }         // 云端 API</code></pre>
+<div class='tablewrap'><table><thead><tr><th>引擎</th><th>优点</th><th>缺点</th></tr></thead><tbody><tr><td><strong>本地 PaddleOCR</strong></td><td>离线、免费、<strong>照片不出设备</strong>、无按次费用</td><td>APK 增大约 20–40MB；识别率略低</td></tr><tr><td><strong>云端 OCR</strong></td><td>识别率更高、包体小</td><td>照片要上传（隐私）、按次收费、需联网</td></tr></tbody></table></div>
+<p><strong>设置里让用户选</strong>，并在界面上明确写出隐私代价：</p>
+<blockquote class=''><p>云端 OCR 会把题目照片上传到第三方服务。题目里可能有孩子的姓名、学校、班级。</p></blockquote>
+<h3 id='h-AI-DeepSeek-已确认'>AI：DeepSeek（已确认）</h3>
+<p>用官方 API（<code>https://api.deepseek.com</code>），两个用途：</p>
+<div class='tablewrap'><table><thead><tr><th>用途</th><th>模型</th><th>说明</th></tr></thead><tbody><tr><td><strong>图形 / 公式重绘</strong></td><td><code>deepseek-flash</code></td><td><strong>多模态</strong>，直接看裁剪出来的图形区域</td></tr><tr><td><strong>变式题生成</strong></td><td><code>deepseek-chat</code> 或 <code>deepseek-flash</code></td><td>输入题干 + 年级 + 知识点</td></tr></tbody></table></div>
+<blockquote class=''><p><strong>已核实</strong>：<code>deepseek-flash</code> 支持图片输入（[官方文档](https://api-docs.deepseek.com/zh-cn/guides/vision/)）。</p><p>这是「图形交给 LLM 生成」能成立的前提——模型看得见图，不是只靠文字猜。</p></blockquote>
+<hr>
+<h2 id='h-七-题目清理怎么做-重点'>七、题目清理怎么做（重点）</h2>
+<p>你提到的做法是：<strong>文字用文本重建，图形和公式用 LLM 生成，然后拼装成题目。</strong></p>
+<p>核实 DeepSeek 多模态能力后，这条路可行。下面是具体机制。</p>
+<h3 id='h-题干被建模成-元素序列'>题干被建模成「元素序列」</h3>
+<pre><code>[文字] "一个长方形的长是 8 厘米，宽是 5 厘米。"
+[图形] （原题里那个长方形）
+[文字] "求它的周长和面积。"</code></pre>
+<p>而不是一整块无法拆分的图片。每个元素独立处理，最后<strong>拼装</strong>回一道完整题目。</p>
+<h3 id='h-三类元素分别怎么处理'>三类元素分别怎么处理</h3>
+<div class='tablewrap'><table><thead><tr><th>元素</th><th>处理方式</th><th>可靠性</th></tr></thead><tbody><tr><td><strong>文字</strong></td><td>OCR 识别 → 用户可编辑 → <strong>重新排版</strong></td><td>高</td></tr><tr><td><strong>公式</strong></td><td>OCR 出文字 → LLM 转 <strong>LaTeX</strong> → 排版渲染</td><td>高（公式是纯文本，转换稳定）</td></tr><tr><td><strong>图形</strong></td><td>裁剪原图 → 交给 <code>deepseek-flash</code> 重绘成 <strong>SVG</strong></td><td>中（见下）</td></tr></tbody></table></div>
+<h3 id='h-图形重绘的机制'>图形重绘的机制</h3>
+<pre><code>裁剪出的图形区域
+     ↓  以 base64 传给 deepseek-flash
+     ↓  提示词：识别图形内容，输出等价的标准 SVG（黑白线稿，适合打印）
+     ↓
+SVG 源码 → flutter_svg 渲染 → 嵌入题目</code></pre>
+<p><strong>为什么选 SVG 而不是让 AI 生成图片</strong>：DeepSeek 的接口是对话补全，</p>
+<p>输出的是<strong>文本</strong>。SVG 正好是「文本形式的图」，可以精确排版、无限缩放、打印清晰。</p>
+<h3 id='h-风险与应对-重要'>风险与应对（重要）</h3>
+<p>⚠️ <strong>AI 重绘的几何图可能与原题不完全一致</strong>——角度、标注、比例都可能偏。</p>
+<p><strong>应对</strong>：</p>
+<ol><li><strong>默认不重绘</strong>，图形一律裁剪保留原图。AI 重绘是<strong>用户主动点</strong>的按钮。</li><li><strong>强制对照</strong>：重绘后左右并排显示「原图 / AI 重绘」，用户<strong>看过才能选用</strong>。</li><li><strong>打印时标记</strong>：使用 AI 重绘的题，在卷子角落标一个小记号，提示家长核对。</li><li><strong>公式优先</strong>：公式走 LaTeX（可靠），只有图形才需要重绘——<strong>缩小风险面</strong>。</li></ol>
+<blockquote class=''><p>换句话说：<strong>AI 重绘是「可选增强」，不是默认路径。</strong></p><p>默认路径（保留原图）永远是对的，只是可能带着笔迹。</p></blockquote>
+<h3 id='h-成本-Token-机制'>成本（Token 机制）</h3>
+<p>已核实（[官方文档](https://api-docs.deepseek.com/zh-cn/guides/vision/)）：</p>
+<ul><li>每张图片按尺寸换算 token，<strong>上限 1024 token</strong></li><li>图片会被自动缩放到约 1300×1300 等效像素</li><li><code>detail: low</code> 会缩到 512×512，更快更省</li></ul>
+<p><strong>推算</strong>：一道含图的题 ≈ 1 张图（≤1024 token）+ 题干文字（几百 token）。</p>
+<p>一次录入 10 道题，大概几万 token 量级。具体单价请以官网为准。</p>
+<p><strong>省钱手段</strong>：</p>
+<ul><li>图形裁剪后<strong>先压缩</strong>再上传（<code>detail: low</code> 对简单图形够用）</li><li>只有<strong>含图形的题</strong>才调用视觉模型，纯文字题不调用</li><li>用 DeepSeek 的<strong>上下文缓存</strong>（重复的前缀提示词不重复计费）</li></ul>
+<hr>
+<h2 id='h-八-技术难点与应对'>八、技术难点与应对</h2>
+<h3 id='h-难点-1-自动切题不一定准-高风险'>难点 1：自动切题不一定准 ⚠️ 高风险</h3>
+<p>试卷版面千变万化。全自动切分一定有错。</p>
+<p><strong>应对</strong>：自动切分只作<strong>预切分</strong>，进入<strong>待确认列表</strong>让用户调整（合并/拆分/重框）。</p>
+<p>宁可多切几块让用户合并，也不要漏题。</p>
+<h3 id='h-难点-2-去掉手写笔迹-中风险-已降级'>难点 2：去掉手写笔迹 ⚠️ 中风险（已降级）</h3>
+<p>原本是最大风险，因为图像修复不可控。</p>
+<p><strong>已定方案</strong>：<strong>不做图像修复</strong>，走<strong>文本重建 + LLM 重绘</strong>。文字必然干净（是重新排版而不是修图）。</p>
+<p><strong>残留风险</strong>：图形重绘的准确性问题，见第七节。</p>
+<h3 id='h-难点-3-数学公式与图形-中风险'>难点 3：数学公式与图形 ⚠️ 中风险</h3>
+<p><strong>应对</strong>：公式走 LaTeX；图形走「默认保留原图 + 可选 AI 重绘 + 强制对照」。</p>
+<h3 id='h-难点-4-变式题可能出错题-中风险'>难点 4：变式题可能出错题 ⚠️ 中风险</h3>
+<p>LLM 生成的题可能条件矛盾、答案错误、难度不符。</p>
+<p><strong>应对</strong>：生成的题<strong>必须人工确认</strong>才入库；提供「重新生成」；界面标注「AI 生成，请核对」。</p>
+<h3 id='h-难点-5-两个孩子的数据不能混-中风险'>难点 5：两个孩子的数据不能混 ⚠️ 中风险</h3>
+<p><strong>应对</strong>：<code>profileId</code> 进数据模型，<strong>存储层过滤</strong>而非界面层；不提供「全部」视图；</p>
+<p>拍照流程第一步就确认归属。</p>
+<h3 id='h-难点-6-打印版式'>难点 6：打印版式</h3>
+<p>不同题型（纯文字 / 含图 / 含公式）在 A4 上的排版不一致。</p>
+<p><strong>应对</strong>：统一「题目卡片」排版；图片按比例缩放限高；先做简单版式。</p>
+<hr>
+<h2 id='h-九-页面结构'>九、页面结构</h2>
+<pre><code>顶部：当前孩子切换器（始终可见）
+
+底部导航
+├─ 📷 录入
+│   ├─ 确认孩子 → 拍照 / 相册
+│   ├─ 处理进度
+│   └─ ★ 待确认列表（逐题审核 + 编辑 + 全部通过）
+│
+├─ 📚 错题库（当前孩子的）
+│   ├─ 列表（筛选：学科 / 时间 / 掌握状态）
+│   ├─ 选择模式（手动 / 多选 / 全选）
+│   ├─ 详情（查看 / 编辑 / 生成变式题）
+│   └─ → 生成练习卷
+│
+├─ 🖨 练习卷
+│   ├─ 已保存的列表
+│   ├─ 排版预览
+│   └─ 一键打印 / 导出 PDF
+│
+└─ ⚙️ 设置
+    ├─ 孩子管理（增删改）
+    ├─ OCR 引擎（本地 / 云端）
+    ├─ AI 配置（DeepSeek API Key、模型）
+    ├─ 打印默认版式
+    └─ 数据备份 / 导出</code></pre>
+<hr>
+<h2 id='h-十-分阶段计划'>十、分阶段计划</h2>
+<h3 id='h-阶段一-能用-MVP'>阶段一：能用（MVP）</h3>
+<p><strong>目标</strong>：走通「拍照 → 确认 → 干净题目 → 打印」</p>
+<ul><li>Profile 管理 + 切换</li><li>拍照 / 相册导入</li><li>手动框选切题</li><li>本地 OCR（PaddleOCR）识别文字</li><li><strong>待确认列表</strong>：编辑文字、逐题确认、批量通过</li><li>错题库列表 + 手动选择 / 多选 / 全选</li><li>导出 PDF + 一键打印</li><li><strong>图形一律裁剪保留原图</strong></li></ul>
+<blockquote class=''><p>先不做：自动切题、AI 重绘、变式题、云端 OCR、手动擦除、统计</p></blockquote>
+<h3 id='h-阶段二-好用'>阶段二：好用</h3>
+<ul><li>自动预切题</li><li><strong>AI 重绘图形/公式</strong>（DeepSeek 多模态）+ 对照选择</li><li><strong>变式题生成</strong>（DeepSeek）</li><li>云端 OCR 可切换</li><li>学科 / 标签 / 掌握状态</li><li>搜索</li></ul>
+<h3 id='h-阶段三-长期'>阶段三：长期</h3>
+<ul><li>复习计划与提醒</li><li>错题统计（知识点分布、趋势）</li><li>练习卷模板</li><li>数据备份 / 多设备同步</li></ul>
+<hr>
+<h2 id='h-十一-已确认的决策'>十一、已确认的决策</h2>
+<div class='tablewrap'><table><thead><tr><th>#</th><th>决策</th><th>你的选择</th></tr></thead><tbody><tr><td>1</td><td>技术栈</td><td><strong>Flutter</strong></td></tr><tr><td>2</td><td>OCR</td><td><strong>两种都做</strong>，设置里让用户选</td></tr><tr><td>3</td><td>大模型</td><td><strong>DeepSeek</strong></td></tr><tr><td>4</td><td>手写擦除</td><td><strong>文本重建</strong>；图形和公式由 LLM 生成后拼装</td></tr><tr><td>5</td><td>多孩子</td><td><strong>Profile</strong>，两人题目严格隔离</td></tr><tr><td>6</td><td>流程</td><td>拍完<strong>自动处理</strong> → <strong>错题列表</strong> → <strong>用户确认后</strong>才真正入库 → 手动选择/多选/全选 → 排版 → <strong>一键打印</strong></td></tr></tbody></table></div>
+<hr>
+<h2 id='h-十二-剩余待确认的小问题'>十二、剩余待确认的小问题</h2>
+<p>都不影响开工，边做边定即可：</p>
+<ol><li><strong>云端 OCR 用哪家？</strong>（百度 / 腾讯 / 阿里 / 讯飞）—— 阶段二才需要</li><li><strong>练习卷默认要不要留答题空间？</strong> 留多大（1 行 / 3 行 / 按题型）？</li><li><strong>「已掌握」的题</strong>要不要自动从默认列表里隐藏？还是只做筛选条件？</li><li><strong>拍照时的引导</strong>：要不要在相机界面画一个取景框提示「把整页拍进来」？</li><li><strong>一周大概录入多少道题？</strong>——影响要不要做「批量确认」的优化</li></ol>
+<hr>
+<h2 id='h-十三-下一步'>十三、下一步</h2>
+<ol><li>你确认这份 v0.2</li><li>我搭 Flutter 项目骨架 + 数据层（Profile / Question / IntakeBatch）</li><li>先做阶段一的最小闭环，跑通「拍照 → 确认 → 打印」</li></ol>
+<hr>
+<p>*文档版本：v0.2 · 2026-10-13*</p>
+<p>*DeepSeek 多模态能力依据官方文档核实：&lt;https://api-docs.deepseek.com/zh-cn/guides/vision/&gt;*</p>
+</div>
+</div>
+</body>
+</html>
