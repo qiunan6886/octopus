@@ -1,0 +1,48 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.mocks.dart
+
+# Python (tools/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# Local machine settings
+android/local.properties
+android/.gradle/
+android/.kotlin/
+ios/Pods/
+macos/Pods/
+
+# Signing material
+*.jks
+*.keystore
+android/key.properties
+
+# Rust (if the OCR engine ends up native)
+rust/target/
+**/target/debug/
+**/target/release/
+
+# Scratch output from the doc/layout tools
+tools/_*.py
+_preview.html
+_diag*.html
+shot-*.png
+band-*.png
+preview-*/
+checks.json
