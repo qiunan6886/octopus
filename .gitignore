@@ -46,7 +46,7 @@ rust/target/
 build/
 
 # 文档/排版工具的临时产物
-tools/_*.py
+tools/_*
 _preview.html
 _diag*.html
 shot-*.png
