@@ -199,6 +199,73 @@ class PrintChildNameNotifier extends Notifier<bool> {
 }
 
 // ---------------------------------------------------------------------------
+// 拍照批改
+// ---------------------------------------------------------------------------
+
+const _gradingKey = 'octopus.gradingEnabled';
+
+/// 是否开启批改。
+///
+/// 批改和录入是同一条流程——「错题」的定义就是做错的题，所以批改只是在这条
+/// 流程里多了一步判断对错，不是另开一个入口。默认关：不批改时就是纯粹的错题
+/// 整理，家长仍然是拍照、确认、入库。
+final gradingEnabledProvider =
+    NotifierProvider<GradingEnabledNotifier, bool>(GradingEnabledNotifier.new);
+
+class GradingEnabledNotifier extends Notifier<bool> {
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_gradingKey) ?? false;
+
+  Future<void> set(bool value) async {
+    state = value;
+    await ref.read(sharedPreferencesProvider).setBool(_gradingKey, value);
+  }
+}
+
+const _keepCorrectKey = 'octopus.gradingKeepCorrect';
+
+/// 批改后是否把**做对**的题也入库。
+///
+/// 默认否：错题集的用途是做错的题，做对的没有必要占位置。但如果家长想留一份
+/// 完整记录（比如看看孩子哪一科全对），可以打开。
+final gradingKeepCorrectProvider =
+    NotifierProvider<GradingKeepCorrectNotifier, bool>(
+      GradingKeepCorrectNotifier.new,
+    );
+
+class GradingKeepCorrectNotifier extends Notifier<bool> {
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_keepCorrectKey) ?? false;
+
+  Future<void> set(bool value) async {
+    state = value;
+    await ref.read(sharedPreferencesProvider).setBool(_keepCorrectKey, value);
+  }
+}
+
+/// 批改是否用 AI。
+///
+/// 关掉时批改完全靠家长点「对 / 错」，离线可用；打开时需要 DeepSeek API Key。
+final aiGradingProvider = NotifierProvider<AiGradingNotifier, bool>(
+  AiGradingNotifier.new,
+);
+
+const _aiGradingKey = 'octopus.aiGrading';
+
+class AiGradingNotifier extends Notifier<bool> {
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_aiGradingKey) ?? true;
+
+  Future<void> set(bool value) async {
+    state = value;
+    await ref.read(sharedPreferencesProvider).setBool(_aiGradingKey, value);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 错题库
 // ---------------------------------------------------------------------------
 

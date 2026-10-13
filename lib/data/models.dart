@@ -61,6 +61,9 @@ class DraftQuestion {
     required this.reviewStatus,
     required this.acceptedQuestionId,
     required this.sortOrder,
+    this.gradeResult,
+    this.correctAnswer,
+    this.gradeSource,
   });
 
   final int id;
@@ -80,6 +83,24 @@ class DraftQuestion {
 
   final int sortOrder;
 
+  /// 批改结果：correct / wrong / null（还没判断）。
+  ///
+  /// 批改和录入是同一条流程——「错题」的定义就是做错的题，所以批改只是多了一步
+  /// 判断对错，而不是另开一个入口。
+  final String? gradeResult;
+
+  /// 批改给出的正确答案。做错的题尤其需要，孩子重做时可以直接对照。
+  final String? correctAnswer;
+
+  /// 判断来自哪里：ai（模型看的图）/ manual（家长自己标的）。
+  ///
+  /// 分开记是因为两者的可信度不同——AI 判断错的题值得复核，手动标记不用。
+  final String? gradeSource;
+
+  bool get isCorrect => gradeResult == 'correct';
+  bool get isWrong => gradeResult == 'wrong';
+  bool get isGraded => gradeResult != null;
+
   factory DraftQuestion.fromMap(Map<String, Object?> m) => DraftQuestion(
     id: m['id']! as int,
     batchId: m['batch_id']! as int,
@@ -89,6 +110,9 @@ class DraftQuestion {
     reviewStatus: (m['review_status'] as String?) ?? 'pending',
     acceptedQuestionId: m['accepted_question_id'] as int?,
     sortOrder: (m['sort_order'] as int?) ?? 0,
+    gradeResult: m['grade_result'] as String?,
+    correctAnswer: m['correct_answer'] as String?,
+    gradeSource: m['grade_source'] as String?,
   );
 }
 
@@ -107,6 +131,8 @@ class Question {
     required this.reviewCount,
     required this.createdAt,
     required this.lastReviewedAt,
+    this.correctAnswer,
+    this.gradeResult,
   });
 
   final int id;
@@ -130,6 +156,13 @@ class Question {
   final DateTime createdAt;
   final DateTime? lastReviewedAt;
 
+  /// 这道题对应的正确答案（批改时给出的）。孩子重做后可以对照。
+  final String? correctAnswer;
+
+  /// 这道题当初被判定的结果。入库的题基本是 wrong，但如果设置里允许保留做对的
+  /// 题，也会有 correct。
+  final String? gradeResult;
+
   factory Question.fromMap(Map<String, Object?> m) => Question(
     id: m['id']! as int,
     profileId: m['profile_id']! as int,
@@ -145,6 +178,8 @@ class Question {
     lastReviewedAt: m['last_reviewed_at'] == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(m['last_reviewed_at']! as int),
+    correctAnswer: m['correct_answer'] as String?,
+    gradeResult: m['grade_result'] as String?,
   );
 }
 

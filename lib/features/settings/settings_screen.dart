@@ -16,6 +16,9 @@ class SettingsScreen extends ConsumerWidget {
     final ocr = ref.watch(ocrEngineProvider);
     final apiKey = ref.watch(deepSeekKeyProvider);
     final printName = ref.watch(printChildNameProvider);
+    final gradingEnabled = ref.watch(gradingEnabledProvider);
+    final keepCorrect = ref.watch(gradingKeepCorrectProvider);
+    final aiGrading = ref.watch(aiGradingProvider);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
@@ -99,6 +102,45 @@ class SettingsScreen extends ConsumerWidget {
           warn: ocr == OcrEngineKind.cloud,
         ),
 
+        // -- 批改 -------------------------------------------------------------
+        const _SectionLabel('批改'),
+        _Card(
+          children: [
+            _ToggleRow(
+              title: '拍照后批改',
+              subtitle: '拍完自动判断每道题对错，只把错题入库',
+              value: gradingEnabled,
+              onChanged: (v) =>
+                  ref.read(gradingEnabledProvider.notifier).set(v),
+            ),
+            if (gradingEnabled)
+              _ToggleRow(
+                title: '用 AI 批改',
+                subtitle: apiKey.trim().isEmpty
+                    ? '需要先配置 DeepSeek API Key'
+                    : '把每题的照片发给 DeepSeek 判断对错',
+                value: aiGrading && apiKey.trim().isNotEmpty,
+                onChanged: apiKey.trim().isEmpty
+                    ? null
+                    : (v) => ref.read(aiGradingProvider.notifier).set(v),
+              ),
+            if (gradingEnabled)
+              _ToggleRow(
+                title: '做对的题也入库',
+                subtitle: '默认只留错题',
+                value: keepCorrect,
+                onChanged: (v) =>
+                    ref.read(gradingKeepCorrectProvider.notifier).set(v),
+              ),
+          ],
+        ),
+        _SectionHint(
+          gradingEnabled
+              ? '批改和录入是同一条流程——「错题」本来就是做错的题，所以只是多了一步'
+                    '判断对错。AI 关掉或没配 Key 时，可以自己点「做对了 / 做错了」。'
+              : '打开后，拍照流程里会多一步判断对错，只把做错的题收进错题库。',
+        ),
+
         // -- AI ---------------------------------------------------------------
         const _SectionLabel('AI'),
         _Card(
@@ -113,8 +155,8 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         const _SectionHint(
-          '用于两件事：把图形和公式重绘成干净版本、生成变式题。'
-          '只有含图形的题才会把图片发给模型，且只在你自己触发时。',
+          '用于两件事：批改做题对错、把图形和公式重绘成干净版本。'
+          '只有你主动触发时才会把照片发给模型。',
         ),
 
         // -- 打印 -------------------------------------------------------------
@@ -367,31 +409,54 @@ class _ToggleRow extends StatelessWidget {
     required this.title,
     required this.value,
     required this.onChanged,
+    this.subtitle,
   });
 
   final String title;
+  final String? subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  color: OctopusColors.textPrimary,
+    final enabled = onChanged != null;
+    return Opacity(
+      opacity: enabled ? 1 : 0.5,
+      child: InkWell(
+        onTap: enabled ? () => onChanged!(!value) : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        color: OctopusColors.textPrimary,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: OctopusColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ),
-            Switch(value: value, onChanged: onChanged),
-          ],
+              const SizedBox(width: 12),
+              Switch(value: value, onChanged: onChanged),
+            ],
+          ),
         ),
       ),
     );

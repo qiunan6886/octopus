@@ -38,7 +38,7 @@ class OctopusDatabase {
   static Future<OctopusDatabase> openAt(String path) async {
     final db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onConfigure: (db) async {
         // SQLite **默认不开外键约束**。不打开的话，建表时写的
         // `ON DELETE CASCADE` 完全不起作用，删掉一个孩子会留下一堆无主的题。
@@ -46,8 +46,28 @@ class OctopusDatabase {
         await db.execute('PRAGMA foreign_keys = ON');
       },
       onCreate: _createSchema,
+      onUpgrade: _upgradeSchema,
     );
     return OctopusDatabase._(db);
+  }
+
+  /// v1 -> v2：加入拍照批改的三个字段。
+  ///
+  /// 已有的题目没有批改结果，留空即可——界面把空值当作「未判断」。
+  static Future<void> _upgradeSchema(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE draft_questions ADD COLUMN grade_result TEXT');
+      await db.execute(
+        'ALTER TABLE draft_questions ADD COLUMN correct_answer TEXT',
+      );
+      await db.execute('ALTER TABLE draft_questions ADD COLUMN grade_source TEXT');
+      await db.execute('ALTER TABLE questions ADD COLUMN correct_answer TEXT');
+      await db.execute('ALTER TABLE questions ADD COLUMN grade_result TEXT');
+    }
   }
 
   Future<void> close() async {
@@ -98,7 +118,10 @@ class OctopusDatabase {
         knowledge_tags       TEXT,
         review_status        TEXT    NOT NULL DEFAULT 'pending',
         accepted_question_id INTEGER,
-        sort_order           INTEGER NOT NULL DEFAULT 0
+        sort_order           INTEGER NOT NULL DEFAULT 0,
+        grade_result         TEXT,
+        correct_answer       TEXT,
+        grade_source         TEXT
       )
     ''');
 
@@ -116,7 +139,9 @@ class OctopusDatabase {
         uses_ai_redrawn_figure INTEGER NOT NULL DEFAULT 0,
         review_count           INTEGER NOT NULL DEFAULT 0,
         created_at             INTEGER NOT NULL,
-        last_reviewed_at       INTEGER
+        last_reviewed_at       INTEGER,
+        correct_answer         TEXT,
+        grade_result           TEXT
       )
     ''');
 
@@ -224,6 +249,8 @@ class OctopusDatabase {
     String? subject,
     String? source,
     bool usesAiRedrawnFigure = false,
+    String? correctAnswer,
+    String? gradeResult,
   }) async {
     final id = await _db.insert('questions', {
       'profile_id': profileId,
@@ -232,6 +259,8 @@ class OctopusDatabase {
       'subject': subject,
       'source': source,
       'uses_ai_redrawn_figure': usesAiRedrawnFigure ? 1 : 0,
+      'correct_answer': correctAnswer,
+      'grade_result': gradeResult,
       'created_at': _now(),
     });
     _notify();
@@ -354,6 +383,9 @@ class OctopusDatabase {
     String? subject,
     String? reviewStatus,
     int? acceptedQuestionId,
+    String? gradeResult,
+    String? correctAnswer,
+    String? gradeSource,
   }) async {
     await _db.update(
       'draft_questions',
@@ -362,12 +394,31 @@ class OctopusDatabase {
         'subject': ?subject,
         'review_status': ?reviewStatus,
         'accepted_question_id': ?acceptedQuestionId,
+        'grade_result': ?gradeResult,
+        'correct_answer': ?correctAnswer,
+        'grade_source': ?gradeSource,
       },
       where: 'id = ?',
       whereArgs: [draftId],
     );
     _notify();
   }
+
+  /// 写入批改结果。
+  ///
+  /// `result` 传 'correct' / 'wrong'；传 null 表示撤销判断，回到未批改状态。
+  Future<void> setDraftGrade(
+    int draftId, {
+    required String? result,
+    String? correctAnswer,
+    required String source,
+  }) =>
+      updateDraft(
+        draftId,
+        gradeResult: result,
+        correctAnswer: correctAnswer,
+        gradeSource: source,
+      );
 
   Future<void> setBatchStatus(int batchId, String status) async {
     await _db.update(
