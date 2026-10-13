@@ -38,7 +38,12 @@ rust/target/
 **/target/debug/
 **/target/release/
 
-# Scratch output from the doc/layout tools
+# 构建产物：APK 走 GitHub Release，不进仓库
+*.apk
+*.aab
+*.ap_
+
+# 文档/排版工具的临时产物
 tools/_*.py
 _preview.html
 _diag*.html
