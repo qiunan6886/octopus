@@ -216,9 +216,17 @@ Worksheet（练习卷）
 | **框架** | **Flutter**（已确认） |
 | 平台 | Android（minSdk 26） |
 | 状态管理 | Riverpod |
-| 本地存储 | SQLite（`drift`）+ 图片文件 |
+| 本地存储 | SQLite（`sqflite`）+ 图片文件 |
 | 打印 | `pdf` + `printing` |
 | SVG 渲染 | `flutter_svg` |
+
+> **实现时的调整：drift → sqflite。**
+> 设计阶段选的是 drift，实际搭建时发现 drift 2.32 之后依赖的 `sqlite3` 3.x
+> 会通过构建钩子在**编译时从 GitHub 下载预编译的 SQLite 库**，网络不通就整个
+> 构建失败；而旧版本 drift 又与新版 `build_runner` 的 analyzer 要求冲突，无法
+> 降级。sqflite 直接用 Android 系统自带的 SQLite，没有原生资源、不需要联网，
+> 构建永远可复现。代价是失去编译期的查询检查，用一条纪律补回来：
+> **任何读写题目的方法都必须接收 `profileId`**。
 
 ### OCR：双引擎，用户可选（已确认）
 

@@ -196,7 +196,8 @@ Worksheet（练习卷）
 └─ 导出 PDF 路径</code></pre>
 <hr>
 <h2 id='h-六-技术选型'>六、技术选型</h2>
-<div class='tablewrap'><table><thead><tr><th>项</th><th>选择</th></tr></thead><tbody><tr><td><strong>框架</strong></td><td><strong>Flutter</strong>（已确认）</td></tr><tr><td>平台</td><td>Android（minSdk 26）</td></tr><tr><td>状态管理</td><td>Riverpod</td></tr><tr><td>本地存储</td><td>SQLite（<code>drift</code>）+ 图片文件</td></tr><tr><td>打印</td><td><code>pdf</code> + <code>printing</code></td></tr><tr><td>SVG 渲染</td><td><code>flutter_svg</code></td></tr></tbody></table></div>
+<div class='tablewrap'><table><thead><tr><th>项</th><th>选择</th></tr></thead><tbody><tr><td><strong>框架</strong></td><td><strong>Flutter</strong>（已确认）</td></tr><tr><td>平台</td><td>Android（minSdk 26）</td></tr><tr><td>状态管理</td><td>Riverpod</td></tr><tr><td>本地存储</td><td>SQLite（<code>sqflite</code>）+ 图片文件</td></tr><tr><td>打印</td><td><code>pdf</code> + <code>printing</code></td></tr><tr><td>SVG 渲染</td><td><code>flutter_svg</code></td></tr></tbody></table></div>
+<blockquote class=''><p><strong>实现时的调整：drift → sqflite。</strong></p><p>设计阶段选的是 drift，实际搭建时发现 drift 2.32 之后依赖的 <code>sqlite3</code> 3.x</p><p>会通过构建钩子在<strong>编译时从 GitHub 下载预编译的 SQLite 库</strong>，网络不通就整个</p><p>构建失败；而旧版本 drift 又与新版 <code>build_runner</code> 的 analyzer 要求冲突，无法</p><p>降级。sqflite 直接用 Android 系统自带的 SQLite，没有原生资源、不需要联网，</p><p>构建永远可复现。代价是失去编译期的查询检查，用一条纪律补回来：</p><p><strong>任何读写题目的方法都必须接收 <code>profileId</code></strong>。</p></blockquote>
 <h3 id='h-OCR-双引擎-用户可选-已确认'>OCR：双引擎，用户可选（已确认）</h3>
 <pre><code>abstract class OcrEngine {
   String get id;

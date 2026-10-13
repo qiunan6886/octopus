@@ -10,12 +10,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEXT_EXT = {".md", ".html", ".py", ".txt", ".yaml", ".yml", ".json", ".xml"}
-SUSPECT = {0x20AC, 0x2103, 0x2122, 0x2039, 0x203A, 0x201A, 0x201E}
+
+# Build output and package caches are not ours, and Android's bundled
+# translations legitimately contain typographic quotes.
+SKIP_DIRS = {"build", ".dart_tool", ".git", ".gradle", "ephemeral"}
+
+# U+201E is a valid low quotation mark in several Android locales, so it is not
+# evidence of corruption on its own.
+SUSPECT = {0x20AC, 0x2103, 0x2122, 0x2039, 0x203A, 0x201A}
 
 problems = []
 checked = 0
 for path in sorted(ROOT.rglob("*")):
-    if not path.is_file() or ".git" in path.parts:
+    if not path.is_file():
+        continue
+    if SKIP_DIRS & set(path.relative_to(ROOT).parts):
         continue
     if path.suffix.lower() not in TEXT_EXT:
         continue
@@ -37,7 +46,5 @@ if problems:
     print("  PROBLEMS:")
     for path, why in problems:
         print(f"    {path.relative_to(ROOT)}  ->  {why}")
-else:
-    print("  no re-encoding signature found")
-    sys.exit(0)
-sys.exit(1)
+    sys.exit(1)
+print("  no re-encoding signature found")
