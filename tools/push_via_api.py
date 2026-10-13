@@ -7,7 +7,12 @@ move the ref -- which is exactly what a push does.
 
 Commit history is preserved: each local commit becomes one remote commit.
 
-Usage: push_via_api.py <remote_base_sha>
+Usage: push_via_api.py <local_base_sha> <remote_head_sha>
+
+The two differ after a push: the commits the API created only exist on the
+server, so the local base is the last local commit already published, while the
+remote head is what the branch points at. The script records both in
+`.git/octopus-sync` so the next run can read them.
 """
 import base64
 import json
@@ -21,6 +26,7 @@ OWNER = "qiunan6886"
 REPO = "octopus"
 BRANCH = "main"
 API = "https://api.github.com"
+SYNC_FILE = ".git/octopus-sync"
 
 TOKEN = os.environ["OCTOPUS_GH_TOKEN"]
 HEADERS = {
@@ -82,15 +88,18 @@ def changed_files(parent, commit):
 
 
 def main():
-    base_sha = sys.argv[1]
-    commits = git("rev-list", "--reverse", f"{base_sha}..HEAD").split()
+    local_base = sys.argv[1]
+    remote_head = sys.argv[2]
+
+    commits = git("rev-list", "--reverse", f"{local_base}..HEAD").split()
     if not commits:
         raise SystemExit("  没有需要推送的提交")
 
-    print(f"  远端基线: {base_sha[:12]}")
+    print(f"  本地基线: {local_base[:12]}")
+    print(f"  远端 HEAD: {remote_head[:12]}")
     print(f"  待推送提交: {len(commits)}")
 
-    running = base_sha
+    running = remote_head
     for sha in commits:
         subject = git("log", "-1", "--format=%s", sha).strip()
         message = git("log", "-1", "--format=%B", sha)
@@ -136,20 +145,22 @@ def main():
     )
     print(f"  已更新 refs/heads/{BRANCH} -> {running[:12]}")
 
-    # API 创建的提交对象不在本地，所以不能拿它 update-ref。记下映射关系即可：
+    # API 创建的提交对象不在本地，所以不能拿它 update-ref。记下映射即可：
     # 本地 HEAD 的 tree 和远端一致，内容就是相同的。
     local_tree = git("rev-parse", "HEAD^{tree}").strip()
     remote_tree = api("GET", f"/repos/{OWNER}/{REPO}/git/commits/{running}")["tree"][
         "sha"
     ]
-    with open(".git/octopus-remote-head", "w", encoding="utf-8") as fh:
-        fh.write(f"{running}\n")
+    with open(SYNC_FILE, "w", encoding="utf-8") as fh:
+        fh.write(f"{git('rev-parse', 'HEAD').strip()}\n{running}\n")
     print(f"  本地 HEAD tree: {local_tree}")
     print(f"  远端 main tree: {remote_tree}")
     if local_tree == remote_tree:
-        print("  内容一致 ✓（tree 相同即逐字节相同）")
+        # 纯 ASCII：控制台是 GBK，打不出 ✓ 会抛 UnicodeEncodeError。
+        print("  content matches (tree hashes are equal)")
+        print(f"  同步点已记录到 {SYNC_FILE}")
     else:
-        print("  ⚠ tree 不一致，需要检查")
+        print("  WARNING: tree hashes differ")
         sys.exit(1)
 
 
