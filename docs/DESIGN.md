@@ -200,6 +200,7 @@ AI 会判错。所以：
 |---|---|
 | P0 | **Profile 管理**（增删改、切换） |
 | P0 | **OCR 引擎选择**：本地 / 云端 |
+| P0 | **切题后自动识别**开关 |
 | P0 | DeepSeek API Key 配置 |
 | P0 | **批改开关**：拍照后批改 / 用 AI 批改 / 做对的题是否入库 |
 | P1 | 云端 OCR 的供应商与 Key 配置 |
@@ -292,21 +293,32 @@ Worksheet（练习卷）
 ```dart
 abstract class OcrEngine {
   String get id;
-  Future<OcrResult> recognize(Uint8List image);   // 文字 + 版面块
+  Future<OcrOutcome> recognize(String imagePath);
 }
 
-class LocalPaddleOcrEngine implements OcrEngine { ... }   // PaddleOCR，离线
-class CloudOcrEngine implements OcrEngine { ... }         // 云端 API
+class MlKitOcrEngine implements OcrEngine { ... }            // 本地，离线
+class DeepSeekVisionOcrEngine implements OcrEngine { ... }   // 云端
 ```
 
-| 引擎 | 优点 | 缺点 |
-|---|---|---|
-| **本地 PaddleOCR** | 离线、免费、**照片不出设备**、无按次费用 | APK 增大约 20–40MB；识别率略低 |
-| **云端 OCR** | 识别率更高、包体小 | 照片要上传（隐私）、按次收费、需联网 |
+| 引擎 | 用什么 | 优点 | 缺点 |
+|---|---|---|---|
+| **本地** | Google ML Kit 端上文字识别 | 离线、免费、**照片不出设备**、无按次费用 | APK 增大约 13MB；**读不了手写体** |
+| **云端** | DeepSeek 视觉模型（`deepseek-flash`） | 能读手写体、能理解版面、能把公式转 LaTeX | 照片要上传、按次收费、需联网 |
+
+> **实现时改了选型：本地从 PaddleOCR 换成 Google ML Kit。**
+> PaddleOCR 要自备并打包几十兆的检测+识别模型，还要自己串起检测、识别、
+> 文本框合并，工程量很大。ML Kit 的中文识别是端上现成的，把模型打包进 APK
+> 就是完全离线，代价只有 13MB。
+>
+> 而且**题干本来就是印刷体**——错题集要的是题目文字，不是孩子的手写答案，
+> 那部分是批改模型的事。ML Kit 正好擅长印刷体。
 
 **设置里让用户选**，并在界面上明确写出隐私代价：
 
-> 云端 OCR 会把题目照片上传到第三方服务。题目里可能有孩子的姓名、学校、班级。
+> 云端 OCR 会把题目照片上传到 DeepSeek。题目里可能有孩子的姓名、学校、班级。
+
+没配 API Key 时选云端会**自动回退到本地**——拍照录入是主流程，不该因为一个
+可选配置而卡住。
 
 ### AI：DeepSeek（已确认）
 
@@ -315,6 +327,7 @@ class CloudOcrEngine implements OcrEngine { ... }         // 云端 API
 | 用途 | 模型 | 说明 |
 |---|---|---|
 | **批改对错** | `deepseek-flash` | **多模态**，看图判断做对做错，并给出正确答案 |
+| **云端 OCR** | `deepseek-flash` | **多模态**，读手写体、理解版面、公式转 LaTeX |
 | **图形 / 公式重绘** | `deepseek-flash` | **多模态**，直接看裁剪出来的图形区域 |
 | **变式题生成** | `deepseek-chat` 或 `deepseek-flash` | 输入题干 + 年级 + 知识点 |
 
@@ -465,29 +478,24 @@ LLM 生成的题可能条件矛盾、答案错误、难度不符。
 
 ## 十、分阶段计划
 
-### 阶段一：能用（MVP）
-
-**目标**：走通「拍照 → 确认 → 干净题目 → 打印」
+### 阶段一：能用（MVP）✅ 已完成
 
 - Profile 管理 + 切换
 - 拍照 / 相册导入
 - 手动框选切题
-- 本地 OCR（PaddleOCR）识别文字
-- **待确认列表**：编辑文字、逐题确认、批量通过
 - 错题库列表 + 手动选择 / 多选 / 全选
 - 导出 PDF + 一键打印
-- **图形一律裁剪保留原图**
+- 图形一律裁剪保留原图
 
-> 先不做：自动切题、AI 重绘、变式题、云端 OCR、手动擦除、统计
+### 阶段二：好用 🚧 进行中
 
-### 阶段二：好用
-
-- 自动预切题
-- **AI 重绘图形/公式**（DeepSeek 多模态）+ 对照选择
-- **变式题生成**（DeepSeek）
-- 云端 OCR 可切换
-- 学科 / 标签 / 掌握状态
-- 搜索
+- ✅ **本地 OCR**（ML Kit）+ 切题后自动识别
+- ✅ **拍照批改**（AI 视觉判断 + 手动标记）
+- ⬜ 自动预切题
+- ⬜ **AI 重绘图形/公式** + 对照选择
+- ⬜ **变式题生成**
+- ⬜ 学科 / 标签 / 掌握状态
+- ⬜ 搜索
 
 ### 阶段三：长期
 

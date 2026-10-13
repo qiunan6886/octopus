@@ -164,6 +164,9 @@ class _CropScreenState extends ConsumerState<CropScreen> {
   Size? _imageSize;
   bool _saving = false;
 
+  /// 已经识别完的题数，只用来显示进度。
+  int _ocrDone = 0;
+
   @override
   void initState() {
     super.initState();
@@ -196,8 +199,7 @@ class _CropScreenState extends ConsumerState<CropScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
-            ),
-        ],
+            ),        ],
       ),
       body: Column(
         children: [
@@ -250,6 +252,9 @@ class _CropScreenState extends ConsumerState<CropScreen> {
           ),
           _CropFooter(
             count: _rects.length,
+            busyLabel: _saving
+                ? '正在裁切并识别 ${_ocrDone + 1}/${_rects.length}…'
+                : null,
             onUndo: _rects.isEmpty || _saving
                 ? null
                 : () => setState(() => _rects.removeLast()),
@@ -303,14 +308,20 @@ class _CropScreenState extends ConsumerState<CropScreen> {
     setState(() => _rects.add(r));
   }
 
-  /// 把每个框裁出来存成独立文件，并登记为待确认题。
+  /// 把每个框裁出来存成独立文件，登记为待确认题，并**顺手识别文字**。
   ///
   /// 裁切直接用 `package:image` 在 Dart 里做，不走平台通道：纯像素操作，
   /// 省一次跨平台往返，也更好测。
+  ///
+  /// 识别放在这里而不是确认页，是因为这是「拍完自动处理」那一步——用户在框选时
+  /// 就能看到进度，进确认页时文字已经在了。识别失败不影响切题结果，草稿照样入库，
+  /// 用户可以手动补。
   Future<void> _finish() async {
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final runOcr = ref.read(autoOcrProvider);
+    final ocr = ref.read(ocrEngineInstanceProvider);
 
     try {
       final decoded = img.decodeImage(File(widget.imagePath).readAsBytesSync());
@@ -320,8 +331,11 @@ class _CropScreenState extends ConsumerState<CropScreen> {
       }
 
       final db = ref.read(databaseProvider);
-      var order = 0;
-      for (final rect in _rects) {
+      var recognized = 0;
+      var failed = 0;
+
+      for (var order = 0; order < _rects.length; order++) {
+        final rect = _rects[order];
         final x = (rect.left * decoded.width)
             .round()
             .clamp(0, decoded.width - 1);
@@ -341,17 +355,38 @@ class _CropScreenState extends ConsumerState<CropScreen> {
           'q_${DateTime.now().microsecondsSinceEpoch}_$order.jpg',
         );
 
+        String content = '';
+        if (runOcr) {
+          if (mounted) setState(() => _ocrDone = order);
+          try {
+            content = (await ocr.recognize(path)).text;
+            if (content.isNotEmpty) recognized++;
+          } catch (_) {
+            // 单题识别失败不该让整批停下，草稿仍然入库，用户可手动补文字。
+            failed++;
+          }
+        }
+
         await db.insertDraft(
           batchId: widget.batchId,
           originalImagePath: path,
+          content: content,
           sortOrder: order,
         );
-        order++;
       }
 
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('切出 $order 道题，确认后入库')),
+        SnackBar(
+          content: Text(
+            _summary(
+              total: _rects.length,
+              recognized: recognized,
+              failed: failed,
+              ranOcr: runOcr,
+            ),
+          ),
+        ),
       );
       navigator.pop();
       navigator.push(
@@ -362,6 +397,17 @@ class _CropScreenState extends ConsumerState<CropScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  String _summary({
+    required int total,
+    required int recognized,
+    required int failed,
+    required bool ranOcr,
+  }) {
+    if (!ranOcr) return '切出 $total 道题，确认后入库';
+    if (failed == 0) return '切出 $total 道题，已识别 $recognized 道';
+    return '切出 $total 道题，识别成功 $recognized 道、失败 $failed 道';
   }
 }
 
@@ -441,9 +487,11 @@ class _CropFooter extends StatelessWidget {
     required this.count,
     required this.onUndo,
     required this.onFinish,
+    this.busyLabel,
   });
 
   final int count;
+  final String? busyLabel;
   final VoidCallback? onUndo;
   final VoidCallback? onFinish;
 
@@ -462,7 +510,9 @@ class _CropFooter extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  count == 0 ? '在照片上拖动，框出一道题' : '已框出 $count 道',
+                  busyLabel ??
+                      (count == 0 ? '在照片上拖动，框出一道题' : '已框出 $count 道'),
+                  maxLines: 2,
                   style: TextStyle(
                     fontSize: 13,
                     color: OctopusColors.textSecondary,

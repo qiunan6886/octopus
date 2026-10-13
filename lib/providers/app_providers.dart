@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/theme/octopus_theme.dart';
 import '../data/database.dart';
+import '../services/ocr_service.dart';
 
 // ---------------------------------------------------------------------------
 // 基础设施
@@ -160,6 +161,37 @@ class OcrEngineNotifier extends Notifier<OcrEngineKind> {
   Future<void> set(OcrEngineKind kind) async {
     state = kind;
     await ref.read(sharedPreferencesProvider).setString(_ocrKey, kind.name);
+  }
+}
+
+/// 按当前设置构造 OCR 引擎。
+///
+/// 云端引擎需要 Key；没配 Key 时**回退到本地**而不是报错——拍照录入是主流程，
+/// 不该因为一个可选配置而卡住。
+final ocrEngineInstanceProvider = Provider<OcrEngine>((ref) {
+  final kind = ref.watch(ocrEngineProvider);
+  final key = ref.watch(deepSeekKeyProvider);
+  if (kind == OcrEngineKind.cloud && key.trim().isNotEmpty) {
+    return DeepSeekVisionOcrEngine(apiKey: key);
+  }
+  return MlKitOcrEngine();
+});
+
+const _autoOcrKey = 'octopus.autoOcr';
+
+/// 切完题是否自动识别文字。默认开——这是「拍完自动处理」那一步。
+final autoOcrProvider = NotifierProvider<AutoOcrNotifier, bool>(
+  AutoOcrNotifier.new,
+);
+
+class AutoOcrNotifier extends Notifier<bool> {
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_autoOcrKey) ?? true;
+
+  Future<void> set(bool value) async {
+    state = value;
+    await ref.read(sharedPreferencesProvider).setBool(_autoOcrKey, value);
   }
 }
 

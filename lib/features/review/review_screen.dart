@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme/octopus_theme.dart';
 import '../../data/database.dart';
 import '../../providers/app_providers.dart';
+import '../../services/deepseek_client.dart';
 import '../../services/deepseek_grader.dart';
 
 /// 待确认列表 —— 整个设计的**安全阀**，也是批改结果落地的地方。
@@ -23,6 +24,7 @@ class ReviewScreen extends ConsumerStatefulWidget {
 
 class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   bool _grading = false;
+  bool _ocrRunning = false;
   final _errors = <String>[];
 
   @override
@@ -47,6 +49,24 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       backgroundColor: OctopusColors.background,
       appBar: AppBar(
         title: Text(gradingOn ? '批改并确认' : '确认题目'),
+        actions: [
+          if (drafts.any((d) => d.content.trim().isEmpty) && !_grading && !_ocrRunning)
+            TextButton(
+              onPressed: _recognizeAll,
+              child: const Text('识别文字'),
+            ),
+          if (_ocrRunning)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+        ],
         bottom: drafts.isEmpty
             ? null
             : PreferredSize(
@@ -243,6 +263,56 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
           correctAnswer: controller.text.trim(),
           gradeSource: 'manual',
         );
+  }
+
+  /// 给还没有文字的草稿跑一遍识别。
+  ///
+  /// 自动识别关掉、或者自动识别那一步失败了，就在这里补。逐题记录失败原因，
+  /// 一道题失败不影响其他题。
+  Future<void> _recognizeAll() async {
+    final drafts = ref.read(draftsProvider(widget.batchId)).value ?? const [];
+    final targets = drafts.where((d) => d.content.trim().isEmpty).toList();
+    if (targets.isEmpty) return;
+
+    final ocr = ref.read(ocrEngineInstanceProvider);
+    final db = ref.read(databaseProvider);
+
+    setState(() {
+      _ocrRunning = true;
+      _errors.clear();
+    });
+
+    var done = 0;
+    try {
+      for (final draft in targets) {
+        if (!mounted) return;
+        try {
+          final outcome = await ocr.recognize(draft.originalImagePath);
+          if (outcome.text.isNotEmpty) {
+            await db.updateDraft(draft.id, content: outcome.text);
+            done++;
+          } else {
+            setState(
+              () => _errors.add('第 ${drafts.indexOf(draft) + 1} 题：没读出文字'),
+            );
+          }
+        } catch (error) {
+          setState(
+            () => _errors.add(
+              '第 ${drafts.indexOf(draft) + 1} 题：'
+              '${error is DeepSeekException ? error.message : error}',
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _ocrRunning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('识别完成 $done/${targets.length} 道')),
+        );
+      }
+    }
   }
 
   /// 用 AI 批改所有还没判断的题。

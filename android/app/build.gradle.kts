@@ -15,12 +15,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.mossapps.octopus"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // 26 = Android 8.0。设计文档里定的下限：drift 的原生 SQLite、
-        // 以及后面要接的本地 OCR，都不需要比这更高。
+        // 26 = Android 8.0。设计文档里定的下限。ML Kit 的文字识别要求 21+，
+        // 这里取更高的 26。
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
@@ -36,8 +33,23 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 会找不到 ML Kit 里其他语种的识别器（我们只打包了中文），
+            // 规则见 proguard-rules.pro。
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
+}
+
+dependencies {
+    // 把中文识别模型**打包进 APK**。
+    //
+    // 不加这一行，ML Kit 会在首次使用时通过 Google Play 服务下载模型——那就不是
+    // 「完全离线」了，孩子房间没网、或者设备上没有 Play 服务时就用不了。代价是
+    // APK 大几 MB，换的是开箱即用。
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
 }
 
 kotlin {

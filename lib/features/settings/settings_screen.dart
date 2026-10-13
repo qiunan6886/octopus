@@ -19,6 +19,7 @@ class SettingsScreen extends ConsumerWidget {
     final gradingEnabled = ref.watch(gradingEnabledProvider);
     final keepCorrect = ref.watch(gradingKeepCorrectProvider);
     final aiGrading = ref.watch(aiGradingProvider);
+    final autoOcr = ref.watch(autoOcrProvider);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
@@ -89,18 +90,32 @@ class SettingsScreen extends ConsumerWidget {
                 OcrEngineKind.local: '本地',
                 OcrEngineKind.cloud: '云端',
               },
-              onChanged: (v) =>
-                  ref.read(ocrEngineProvider.notifier).set(v),
+              onChanged: (v) => ref.read(ocrEngineProvider.notifier).set(v),
+            ),
+            _ToggleRow(
+              title: '切题后自动识别',
+              subtitle: '不用再手动点一次',
+              value: autoOcr,
+              onChanged: (v) => ref.read(autoOcrProvider.notifier).set(v),
             ),
           ],
         ),
         _SectionHint(
-          ocr == OcrEngineKind.local
-              ? '本地识别：离线可用、免费，照片不会离开这台设备。'
-              : '云端识别：准确率更高，但题目照片会上传到第三方服务。'
-                    '题目里可能有孩子的姓名、学校、班级，请自行判断是否接受。',
+          switch (ocr) {
+            OcrEngineKind.local =>
+              '本地识别用 Google ML Kit，完全离线、免费，照片不出设备。'
+                  '它擅长印刷体（题干正好是印刷体），但读不了手写字。',
+            OcrEngineKind.cloud =>
+              '云端识别用 DeepSeek 的视觉模型，能读手写体、能理解版面，也能把公式'
+                  '转成 LaTeX。代价是题目照片会上传到 DeepSeek。',
+          },
           warn: ocr == OcrEngineKind.cloud,
         ),
+        if (ocr == OcrEngineKind.cloud && apiKey.trim().isEmpty)
+          const _SectionHint(
+            '还没配置 API Key，云端识别暂时不可用——会自动退回本地识别。',
+            warn: true,
+          ),
 
         // -- 批改 -------------------------------------------------------------
         const _SectionLabel('批改'),

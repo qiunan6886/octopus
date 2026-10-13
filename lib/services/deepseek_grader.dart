@@ -1,6 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'deepseek_client.dart';
 
 /// 批改结果。
 class GradeOutcome {
@@ -21,15 +22,9 @@ class GradeOutcome {
   String get gradeResult => isCorrect ? 'correct' : 'wrong';
 }
 
-/// 批改失败的原因。批量批改时要能逐题报告，而不是整批崩掉。
-class GradeException implements Exception {
-  GradeException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
-}
+/// 批改失败。保留这个名字是因为调用方和测试都在用它；实现和 [DeepSeekException]
+/// 是同一个东西——网络、鉴权、解析的失败原因都由客户端统一措辞。
+typedef GradeException = DeepSeekException;
 
 /// 用 DeepSeek 的视觉模型批改一道题。
 ///
@@ -41,20 +36,20 @@ class GradeException implements Exception {
 /// https://api-docs.deepseek.com/zh-cn/guides/vision/）。
 class DeepSeekGrader {
   DeepSeekGrader({
-    required this.apiKey,
-    this.model = 'deepseek-flash',
-    this.endpoint = 'https://api.deepseek.com/chat/completions',
+    required String apiKey,
+    String model = 'deepseek-flash',
+    String? endpoint,
     Duration? timeout,
-  }) : timeout = timeout ?? const Duration(seconds: 90);
+  }) : _client = DeepSeekClient(
+         apiKey: apiKey,
+         model: model,
+         endpoint: endpoint ?? 'https://api.deepseek.com/chat/completions',
+         timeout: timeout,
+       );
 
-  final String apiKey;
-  final String model;
-  final String endpoint;
-  final Duration timeout;
+  final DeepSeekClient _client;
 
-  /// 单张图片的请求体上限是 32 MiB，内联进 JSON 的整包上限 48 MiB。
-  /// base64 会膨胀约 1/3，所以按 20 MB 原图设限，留足余量。
-  static const maxImageBytes = 20 * 1024 * 1024;
+  static const maxImageBytes = DeepSeekClient.maxImageBytes;
 
   /// 批改一道题。[imageBytes] 是切出来的那道题（含孩子的手写答案）。
   Future<GradeOutcome> grade({
@@ -62,80 +57,45 @@ class DeepSeekGrader {
     required int grade,
     String? subject,
   }) async {
-    if (apiKey.trim().isEmpty) {
-      throw GradeException('还没有配置 DeepSeek API Key');
-    }
-    if (imageBytes.length > maxImageBytes) {
-      throw GradeException('这道题的图片太大了，无法上传批改');
-    }
-
-    final body = jsonEncode({
-      'model': model,
-      'messages': [
-        {
-          'role': 'user',
-          'content': [
-            {'type': 'text', 'text': _prompt(grade: grade, subject: subject)},
-            {
-              'type': 'image_url',
-              'image_url': {
-                'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}',
-                // 手写字要看清笔迹，low 会缩到 512×512，不够。
-                'detail': 'high',
-              },
-            },
-          ],
-        },
-      ],
-      // 让模型直接输出 JSON，省掉解析自然语言的不确定性。
-      'response_format': {'type': 'json_object'},
-      'temperature': 0,
-    });
-
-    final client = HttpClient();
-    client.connectionTimeout = timeout;
-    try {
-      final request = await client
-          .postUrl(Uri.parse(endpoint))
-          .timeout(timeout);
-      request.headers
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $apiKey')
-        ..contentType = ContentType('application', 'json', charset: 'utf-8');
-      request.add(utf8.encode(body));
-
-      final response = await request.close().timeout(timeout);
-      final text = await response
-          .transform(utf8.decoder)
-          .join()
-          .timeout(timeout);
-
-      if (response.statusCode != 200) {
-        throw GradeException(_explainHttpError(response.statusCode, text));
-      }
-      return parseResponse(text);
-    } on GradeException {
-      rethrow;
-    } on SocketException {
-      throw GradeException('连不上 DeepSeek，检查网络');
-    } catch (error) {
-      throw GradeException('批改失败：$error');
-    } finally {
-      client.close(force: true);
-    }
+    final reply = await _client.chatWithImage(
+      prompt: _prompt(grade: grade, subject: subject),
+      imageBytes: imageBytes,
+      // 手写字要看清笔迹，low 会缩到 512×512，不够。
+      detail: 'high',
+    );
+    return parseResponse(reply);
   }
 
   /// 解析模型的响应。
   ///
   /// 单独暴露出来是为了能在离线状态下测——这段逻辑要处理模型不听话的各种情况
   /// （加了解释、包了代码围栏、字段名写错），比网络调用更需要测试。
-  static GradeOutcome parseResponse(String raw) => _parseStatic(raw);
+  static GradeOutcome parseResponse(String raw) {
+    final content = DeepSeekClient.extractContent(raw);
+    final decoded = DeepSeekClient.firstJsonObject(content);
+    if (decoded == null) {
+      throw GradeException('模型返回的内容看不懂');
+    }
 
-  String _explainHttpError(int code, String body) => switch (code) {
-    401 => 'API Key 无效',
-    402 => 'DeepSeek 账户余额不足',
-    429 => '请求太频繁，稍后再试',
-    _ => 'DeepSeek 返回 $code：${body.length > 200 ? body.substring(0, 200) : body}',
-  };
+    final correct = decoded['correct'];
+    final isCorrect = correct is bool
+        ? correct
+        : correct?.toString().toLowerCase() == 'true';
+
+    String? clean(Object? value) {
+      if (value == null) return null;
+      final text = value.toString().trim();
+      return text.isEmpty ? null : text;
+    }
+
+    return GradeOutcome(
+      isCorrect: isCorrect,
+      correctAnswer: clean(
+        decoded['correctAnswer'] ?? decoded['correct_answer'],
+      ),
+      reason: clean(decoded['reason']),
+    );
+  }
 
   String _prompt({required int grade, String? subject}) {
     final gradeText = switch (grade) {
@@ -178,94 +138,6 @@ class DeepSeekGrader {
     '五',
     '六',
   ].elementAt(n.clamp(0, 6));
-
-  static GradeOutcome _parseStatic(String raw) {
-    final content = _extractContentStatic(raw);
-    final decoded = _firstJsonObjectStatic(content);
-    if (decoded == null) {
-      throw GradeException('模型返回的内容看不懂');
-    }
-
-    final correct = decoded['correct'];
-    final isCorrect = correct is bool
-        ? correct
-        : correct?.toString().toLowerCase() == 'true';
-
-    String? clean(Object? value) {
-      if (value == null) return null;
-      final text = value.toString().trim();
-      return text.isEmpty ? null : text;
-    }
-
-    return GradeOutcome(
-      isCorrect: isCorrect,
-      correctAnswer: clean(
-        decoded['correctAnswer'] ?? decoded['correct_answer'],
-      ),
-      reason: clean(decoded['reason']),
-    );
-  }
-
-  /// 从 OpenAI 兼容的响应里取 `choices[0].message.content`。
-  static String _extractContentStatic(String raw) {
-    try {
-      final body = jsonDecode(raw);
-      if (body is Map && body['choices'] is List) {
-        final choices = body['choices'] as List;
-        if (choices.isNotEmpty) {
-          final message = (choices.first as Map)['message'];
-          if (message is Map && message['content'] != null) {
-            return message['content'].toString();
-          }
-        }
-      }
-    } catch (_) {
-      // 响应不是预期的形状，交给下面按原文处理。
-    }
-    return raw;
-  }
-
-  /// 取正文里第一个完整的 JSON 对象。
-  ///
-  /// 即便要求了 json_object，模型偶尔还是会加上解释或代码围栏，所以不假设正文
-  /// 就是纯 JSON。花括号计数时要注意字符串里的括号和转义引号。
-  static Map<String, Object?>? _firstJsonObjectStatic(String text) {
-    final start = text.indexOf('{');
-    if (start == -1) return null;
-
-    var depth = 0;
-    var inString = false;
-    var escaped = false;
-    for (var i = start; i < text.length; i++) {
-      final ch = text[i];
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-        } else if (ch == '\\') {
-          escaped = true;
-        } else if (ch == '"') {
-          inString = false;
-        }
-        continue;
-      }
-      if (ch == '"') {
-        inString = true;
-      } else if (ch == '{') {
-        depth++;
-      } else if (ch == '}') {
-        depth--;
-        if (depth == 0) {
-          try {
-            final parsed = jsonDecode(text.substring(start, i + 1));
-            return parsed is Map<String, Object?> ? parsed : null;
-          } catch (_) {
-            return null;
-          }
-        }
-      }
-    }
-    return null;
-  }
 }
 
 /// 从磁盘读一张题图，读不到就抛 [GradeException]。
