@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Octopus · 错题集</title>
+<style>
+:root { --bg:#f6f7f9; --card:#fff; --ink:#1c1f23; --soft:#5a636e; --line:#e3e6ea; --accent:#2f6fed; --softbg:#eef3fe; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --card:#1e2126; --ink:#e8eaed; --soft:#a5adb8; --line:#2e333a; --accent:#7aa7ff; --softbg:#1d2735; }
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; padding:28px 16px 64px; background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  font-size:16px; line-height:1.8;
+}
+.wrap { max-width:640px; margin:0 auto; }
+h1 { font-size:1.5em; margin:0 0 .2em; }
+.sub { color:var(--soft); font-size:.94em; margin:0 0 1.6em; }
+a.card {
+  display:block; background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:16px 18px; margin:12px 0; text-decoration:none; color:inherit;
+}
+a.card:hover { border-color:var(--accent); }
+a.card .t { font-weight:650; }
+a.card .d { color:var(--soft); font-size:.88em; margin-top:2px; }
+a.card.primary { background:var(--softbg); border-color:var(--accent); }
+.note { color:var(--soft); font-size:.86em; margin-top:2em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Octopus · 错题集</h1>
+  <p class="sub">拍照 → 自动切题 → 还原成干净的新题 → 挑题打印</p>
+
+  <a class="card primary" href="design-v0.1.html">
+    <div class="t">设计文档 v0.1 →</div>
+    <div class="d">推荐先看这个。带目录跳转，手机浏览器直接打开。</div>
+  </a>
+
+  <a class="card" href="DESIGN.md">
+    <div class="t">设计文档（源文件）</div>
+    <div class="d">Markdown 源文件，HTML 和 Word 版都由它生成。</div>
+  </a>
+
+  <a class="card" href="Octopus-%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3-v0.1.docx">
+    <div class="t">设计文档（Word 版）</div>
+    <div class="d">如需下载或批注，用这个。</div>
+  </a>
+
+  <p class="note">
+    当前为设计阶段，尚未开发。<br>
+    <a href="https://github.com/qiunan6886/octopus">查看源码仓库 →</a>
+  </p>
+</div>
+</body>
+</html>
