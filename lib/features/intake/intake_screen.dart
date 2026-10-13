@@ -562,10 +562,14 @@ class _BigAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null && !busy;
+    // 彩主题下主按钮用渐变，单色主题下渐变两端同色——不用写分支。
+    final useGradient = primary && OctopusColors.isColorful;
     return Opacity(
       opacity: enabled || busy ? 1 : 0.45,
       child: Material(
-        color: primary ? OctopusColors.accent : OctopusColors.surface,
+        color: primary
+            ? (useGradient ? Colors.transparent : OctopusColors.accent)
+            : OctopusColors.surface,
         borderRadius: BorderRadius.circular(OctopusRadius.card),
         child: InkWell(
           onTap: enabled ? onTap : null,
@@ -573,6 +577,7 @@ class _BigAction extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
+              gradient: useGradient ? OctopusColors.heroGradient : null,
               borderRadius: BorderRadius.circular(OctopusRadius.card),
               border: Border.all(
                 color: primary ? OctopusColors.accent : OctopusColors.border,

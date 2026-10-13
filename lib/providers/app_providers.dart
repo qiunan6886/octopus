@@ -28,8 +28,11 @@ final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
 // 主题
 // ---------------------------------------------------------------------------
 
-/// 用户选择的主题。`system` 跟随系统。
-enum ThemeChoice { system, paper, ink }
+/// 用户选择的主题。
+///
+/// 前三个是单色（纸/墨互为反色），`vivid` 是彩色的第三个选项。设计文档把单色
+/// 定为默认，理由是屏幕主角是试卷照片；彩色是给想换个心情的用户，不替换默认。
+enum ThemeChoice { system, paper, ink, vivid }
 
 const _themeKey = 'octopus.theme';
 
@@ -55,12 +58,15 @@ class ThemeChoiceNotifier extends Notifier<ThemeChoice> {
 }
 
 /// 真正生效的调色板。
+///
+/// `system` 的判定需要 MediaQuery，所以这里按亮色处理；app 根节点会用真实亮度
+/// 重新算一次。别的地方读这个 provider 只是为了拿颜色，不需要精确到亮暗。
 final activePaletteProvider = Provider<OctopusPalette>((ref) {
   final choice = ref.watch(themeChoiceProvider);
   return switch (choice) {
     ThemeChoice.paper => octopusPaper,
     ThemeChoice.ink => octopusInk,
-    // `system` 的判定放在 app 层，那里才有 MediaQuery。
+    ThemeChoice.vivid => octopusVivid,
     ThemeChoice.system => octopusPaper,
   };
 });

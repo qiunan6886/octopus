@@ -71,13 +71,18 @@ class SettingsScreen extends ConsumerWidget {
                 ThemeChoice.system: '跟随系统',
                 ThemeChoice.paper: '纸（浅色）',
                 ThemeChoice.ink: '墨（深色）',
+                ThemeChoice.vivid: '彩（缤纷）',
               },
-              onChanged: (v) =>
-                  ref.read(themeChoiceProvider.notifier).set(v),
+              onChanged: (v) => ref.read(themeChoiceProvider.notifier).set(v),
             ),
           ],
         ),
-        const _SectionHint('「纸」是白底黑字，「墨」是黑底白字，两套互为反色。'),
+        _SectionHint(
+          themeChoice == ThemeChoice.vivid
+              ? '「彩」用淡紫纸面配紫、珊瑚、琥珀多组颜色，头部有渐变，学科标签按科目上色。'
+              : '「纸」是白底黑字，「墨」是黑底白字，两套互为反色。'
+                    '单色是默认——屏幕上的主角是试卷照片，彩色会和题目抢注意力。',
+        ),
 
         // -- 识别 -------------------------------------------------------------
         const _SectionLabel('识别'),

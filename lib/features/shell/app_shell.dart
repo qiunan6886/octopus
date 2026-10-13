@@ -221,6 +221,8 @@ class _ProfileChip extends StatelessWidget {
 }
 
 /// 用姓名的第一个字作头像，不引入图片资源。
+///
+/// 彩主题下用渐变底，单色主题下渐变两端同色、等价于纯色——这样不用写分支。
 class _ProfileAvatar extends StatelessWidget {
   const _ProfileAvatar({required this.profile, required this.size});
 
@@ -237,7 +239,7 @@ class _ProfileAvatar extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: OctopusColors.accent,
+        gradient: OctopusColors.heroGradient,
         shape: BoxShape.circle,
       ),
       child: Text(

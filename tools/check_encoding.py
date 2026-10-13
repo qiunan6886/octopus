@@ -1,23 +1,39 @@
 """Detect PowerShell re-encoding corruption properly.
 
-The old check looked for a blacklist of characters (euro sign, degree sign, ...).
+The first version looked for a blacklist of characters (euro sign, degree sign).
 That misses the common case: UTF-8 Chinese read as GBK and written back as UTF-8
 produces *valid* CJK characters, just the wrong ones. `图片在控件里` becomes
 `鍥剧墖鍦ㄦ帶浠堕噷`, which the blacklist happily accepts.
 
-The reliable test is a round trip: mojibake is text whose GBK bytes happen to be
-valid UTF-8 that decodes back to real Chinese. Genuine Chinese does not survive
-that path, so a successful round trip is strong evidence of corruption.
+A second version added a GBK round trip. That catches the simple case but not
+this one, which is what actually bit us twice: the same round trip applied to a
+file whose bytes do not happen to survive re-encoding produces **private use
+area** characters (U+E000..U+F8FF). `pubspec.yaml` ended up with U+E162 and
+friends and the YAML parser rejected it. PUA characters never appear in source
+that a person wrote, so their presence is conclusive on its own.
+
+So both signals are checked: PUA characters, and the GBK round trip.
 """
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TEXT_EXT = {".md", ".html", ".py", ".txt", ".yaml", ".yml", ".json", ".xml", ".dart", ".kt"}
+TEXT_EXT = {
+    ".md",
+    ".html",
+    ".py",
+    ".txt",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".xml",
+    ".dart",
+    ".kt",
+    ".kts",
+    ".gradle",
+    ".pro",
+}
 SKIP_DIRS = {"build", ".dart_tool", ".git", ".gradle", "ephemeral"}
-
-# Flipping these characters produces text that still looks like Chinese.
-GARBAGE = set("鍥剧墖鍦ㄦ帶浠堕噷瀹為檯鍗犳嵁鐨勭煩褰紙浼氱暀杈癸級锛屾垜浣犱粬鐨勪簡鏄湪鍜屼笉浜嗘湁涓婁笅澶т腑灏忚繖閭ｄ釜")
 
 
 def cjk_ratio(text):
@@ -33,9 +49,7 @@ def round_trip_recoverable(text):
         recovered = text.encode("gbk").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
         return None
-    if recovered == text:
-        return None
-    return recovered
+    return None if recovered == text else recovered
 
 
 problems = []
@@ -53,26 +67,40 @@ for path in sorted(ROOT.rglob("*")):
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        problems.append((path, f"INVALID UTF-8: {exc}"))
+        problems.append((path, [(-1, f"不是合法 UTF-8: {exc}", "")]))
         continue
 
     checked += 1
     hits = []
 
-    # 1. 逐行做往返检测，能定位到行
+    # 1. 私用区字符：人手写出来的源码里不会有，出现了就是损坏。
+    pua = sorted({ord(c) for c in text if 0xE000 <= ord(c) <= 0xF8FF})
+    if pua:
+        lines = [
+            i
+            for i, line in enumerate(text.splitlines(), 1)
+            if any(0xE000 <= ord(c) <= 0xF8FF for c in line)
+        ]
+        hits.append(
+            (-1, f"私用区字符 {[hex(c) for c in pua][:6]}（第 {lines[:5]} 行）", "")
+        )
+
+    # 2. 黑名单：另一类损坏会留下这些符号。
+    bad = sorted(
+        {ord(c) for c in text} & {0x20AC, 0x2103, 0x2122, 0x2039, 0x203A, 0x201A}
+    )
+    if bad:
+        hits.append((-1, f"可疑符号 {[hex(b) for b in bad]}", ""))
+
+    # 3. GBK 往返：逐行做，能定位到行。
     for lineno, line in enumerate(text.splitlines(), 1):
         if cjk_ratio(line) < 0.15:
             continue
         recovered = round_trip_recoverable(line)
         if recovered and cjk_ratio(recovered) > 0.5:
             hits.append((lineno, line.strip()[:60], recovered.strip()[:60]))
-            if len(hits) >= 3:
+            if len(hits) >= 4:
                 break
-
-    # 2. 老的黑名单仍然保留，抓另一类损坏
-    bad = sorted({ord(c) for c in text} & {0x20AC, 0x2103, 0x2122, 0x2039, 0x203A, 0x201A})
-    if bad:
-        hits.append((-1, f"字符 {[hex(b) for b in bad]}", ""))
 
     if hits:
         problems.append((path, hits))

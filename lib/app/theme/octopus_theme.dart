@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Octopus 的视觉语言：**纸与墨**。
-///
-/// 两套主题互为反色，都是严格单色：
+/// Octopus 的视觉语言：**纸、墨、彩**。
 ///
 /// * [octopusPaper]（浅色）—— 暖白纸面，纯黑作强调色
 /// * [octopusInk]（深色）—— 纯黑墨面，纯白作强调色
+/// * [octopusVivid]（浅色，彩色）—— 明亮的淡紫纸面，紫 + 珊瑚 + 琥珀
 ///
-/// 为什么是单色：这是个**错题**应用，内容本身是试卷照片和印刷体文字。
-/// 任何彩色都会和题目里的内容抢注意力，而且彩色在打印时也会失真。
-/// 唯一保留的语义色是 [danger]（删除类操作），因为破坏性操作必须一眼可辨。
+/// 纸和墨互为反色、严格单色。理由：这是个**错题**应用，内容本身是试卷照片和
+/// 印刷体文字，彩色会和题目内容抢注意力，打印时也会失真。所以**单色是默认**。
+///
+/// [octopusVivid] 是给想换个心情的用户准备的**第三个选项**，不替换前两个。
+/// 它不只是在单色上加一个强调色——[accentAlt]、[success]、[warning] 和
+/// [heroGradient] 都会真正参与界面，否则「彩色」只是个摆设。
 ///
 /// 结构沿用 Spark 的做法：调色板是数据，[OctopusColors] 是全局静态访问点。
 /// 代价是颜色不再是 `const`，且 Flutter 无法自动感知切换——由 app 根节点
@@ -30,6 +32,11 @@ class OctopusPalette {
     required this.textTertiary,
     required this.border,
     required this.danger,
+    this.accentAlt,
+    this.success,
+    this.warning,
+    this.heroGradient,
+    this.isColorful = false,
   });
 
   /// 稳定标识。同时用作 widget key：颜色走静态读取，Flutter 观察不到变化。
@@ -46,7 +53,7 @@ class OctopusPalette {
   /// 比 [surface] 高一层的底色（按下态、未选中的 chip）。
   final Color surfaceHigh;
 
-  /// 唯一的强调色。浅色主题是黑，深色主题是白——两边互为反色。
+  /// 主强调色。纸是黑、墨是白、彩是紫。
   final Color accent;
 
   /// 压在 [accent] 上的内容色。
@@ -59,8 +66,33 @@ class OctopusPalette {
   /// 分隔线、卡片描边。
   final Color border;
 
-  /// 唯一的语义色：删除、丢弃。整个应用只有这一处不是灰阶。
+  /// 删除、丢弃。破坏性操作必须一眼可辨，所以单色主题也保留它。
   final Color danger;
+
+  /// 第二强调色。单色主题里等于 [accent]（等于没用），只有彩主题给不同的值。
+  final Color? accentAlt;
+
+  /// 已掌握。单色主题里是灰阶。
+  final Color? success;
+
+  /// 复习中。单色主题里是灰阶。
+  final Color? warning;
+
+  /// 顶部/头部的渐变。单色主题给一个几乎看不见的同色渐变，保持结构一致。
+  final Gradient? heroGradient;
+
+  /// 是否处于彩色模式。
+  ///
+  /// 界面据此决定要不要用装饰性颜色（学科标签、进度条、头像渐变）。
+  /// 用显式的标志而不是「accent 是不是灰」来判断，是因为后者太隐晦。
+  final bool isColorful;
+
+  /// 取第二强调色，单色主题回退到主强调色。
+  Color get accentAltOrAccent => accentAlt ?? accent;
+
+  Color get successOrPrimary => success ?? textSecondary;
+
+  Color get warningOrPrimary => warning ?? textSecondary;
 }
 
 /// 「纸」——浅色主题。
@@ -100,6 +132,39 @@ const octopusInk = OctopusPalette(
   danger: Color(0xFFFF6B6B),
 );
 
+/// 「彩」——彩色主题。
+///
+/// 淡紫的纸面配紫 + 珊瑚两个强调色，加上琥珀和青绿做语义色。
+///
+/// 和纸/墨的关键区别不是「换了个颜色」，而是**颜色真的参与了界面**：
+/// 头部有渐变、学科标签按科目上色、掌握状态用琥珀/青绿区分。为此专门带了
+/// [isColorful] 标志，界面据此决定要不要用装饰性颜色。
+///
+/// 底色仍然偏亮、对比度足够，因为屏幕上的主角始终是试卷照片。
+const octopusVivid = OctopusPalette(
+  id: 'vivid',
+  brightness: Brightness.light,
+  background: Color(0xFFF7F4FF),
+  surface: Color(0xFFFFFFFF),
+  surfaceHigh: Color(0xFFEDE7FF),
+  accent: Color(0xFF6C4CE0),
+  onAccent: Color(0xFFFFFFFF),
+  accentAlt: Color(0xFFFF6B4A),
+  success: Color(0xFF0E9F8A),
+  warning: Color(0xFFE08A00),
+  textPrimary: Color(0xFF1B1633),
+  textSecondary: Color(0xFF5F5878),
+  textTertiary: Color(0xFF948CAB),
+  border: Color(0xFFE3DCF7),
+  danger: Color(0xFFD92D3C),
+  heroGradient: LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF6C4CE0), Color(0xFFB44BD6), Color(0xFFFF6B4A)],
+  ),
+  isColorful: true,
+);
+
 /// 全局颜色访问点。
 ///
 /// 保持静态读取（`OctopusColors.accent`）而不是 `ThemeExtension`，
@@ -125,6 +190,47 @@ abstract final class OctopusColors {
   static Color get textTertiary => _active.textTertiary;
   static Color get border => _active.border;
   static Color get danger => _active.danger;
+
+  /// 第二强调色。单色主题里等于主强调色。
+  static Color get accentAlt => _active.accentAltOrAccent;
+
+  /// 已掌握 / 成功。单色主题里是次要灰。
+  static Color get success => _active.successOrPrimary;
+
+  /// 复习中 / 提醒。单色主题里是次要灰。
+  static Color get warning => _active.warningOrPrimary;
+
+  /// 头部渐变。单色主题给一个同色渐变，界面不用为两套主题写分支。
+  static Gradient get heroGradient =>
+      _active.heroGradient ??
+      LinearGradient(colors: [accent, accent], begin: Alignment.topLeft);
+
+  /// 是否彩色模式。界面据此决定要不要用装饰性颜色。
+  static bool get isColorful => _active.isColorful;
+
+  /// 学科标签配色。
+  ///
+  /// 单色主题下全部返回中性色——「色彩丰富」不该渗透到纸和墨里。
+  /// 用固定的一组色相而不是随机，这样同一科永远同一个颜色，孩子能记住。
+  static Color subjectColor(String? subject) {
+    if (!isColorful || subject == null || subject.isEmpty) {
+      return textSecondary;
+    }
+    const palette = [
+      Color(0xFF6C4CE0), // 紫
+      Color(0xFF0E9F8A), // 青绿
+      Color(0xFFE08A00), // 琥珀
+      Color(0xFFD6336C), // 玫红
+      Color(0xFF2F6FED), // 蓝
+      Color(0xFF7A5AF8), // 蓝紫
+    ];
+    // 用字符码之和取模：同一个学科名永远落到同一个颜色。
+    var hash = 0;
+    for (final unit in subject.codeUnits) {
+      hash = (hash + unit) % palette.length;
+    }
+    return palette[hash];
+  }
 
   /// 强调色上的半透明填充，用于选中态背景而不是整块反色。
   static Color get accentSoft => accent.withValues(alpha: isDark ? 0.14 : 0.07);

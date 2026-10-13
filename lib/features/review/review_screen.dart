@@ -557,7 +557,7 @@ class _DraftCard extends StatelessWidget {
     final settled = accepted || discarded;
 
     final accent = draft.isCorrect
-        ? OctopusColors.textTertiary
+        ? OctopusColors.success
         : draft.isWrong
         ? OctopusColors.danger
         : OctopusColors.border;
@@ -658,7 +658,7 @@ class _DraftCard extends StatelessWidget {
                         label: '做对了',
                         icon: Icons.check,
                         active: draft.isCorrect,
-                        activeColor: OctopusColors.accent,
+                        activeColor: OctopusColors.success,
                         onTap: () => onGrade('correct'),
                       ),
                     ),

@@ -26,6 +26,7 @@ class OctopusApp extends ConsumerWidget {
     final palette = switch (choice) {
       ThemeChoice.paper => octopusPaper,
       ThemeChoice.ink => octopusInk,
+      ThemeChoice.vivid => octopusVivid,
       ThemeChoice.system => systemIsDark ? octopusInk : octopusPaper,
     };
 

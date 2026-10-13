@@ -227,38 +227,61 @@ class _LibraryHeader extends StatelessWidget {
         OctopusSpacing.page,
         12,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                '错题库',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                  color: OctopusColors.textPrimary,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 彩主题下标题也走渐变，让「色彩丰富」一眼可见；
+                  // 单色主题下渐变两端同色，等价于纯色。
+                  ShaderMask(
+                    shaderCallback: (bounds) =>
+                        OctopusColors.heroGradient.createShader(bounds),
+                    blendMode: BlendMode.srcIn,
+                    child: Text(
+                      '错题库',
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        color: OctopusColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    total == 0 ? '还没有题目' : '共 $total 道',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: OctopusColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                total == 0 ? '还没有题目' : '共 $total 道',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: OctopusColors.textSecondary,
+              const Spacer(),
+              if (total > 0)
+                TextButton.icon(
+                  onPressed: onStartSelection,
+                  icon: const Icon(Icons.checklist, size: 18),
+                  label: const Text('选择'),
                 ),
-              ),
             ],
           ),
-          const Spacer(),
-          if (total > 0)
-            TextButton.icon(
-              onPressed: onStartSelection,
-              icon: const Icon(Icons.checklist, size: 18),
-              label: const Text('选择'),
+          if (OctopusColors.isColorful) ...[
+            const SizedBox(height: 12),
+            // 一条渐变细线，把彩色主题的头部和内容分开。
+            Container(
+              height: 3,
+              decoration: BoxDecoration(
+                gradient: OctopusColors.heroGradient,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
+          ],
         ],
       ),
     );
@@ -385,19 +408,15 @@ class _QuestionCard extends StatelessWidget {
                             mastery.$1,
                             style: TextStyle(
                               fontSize: 11.5,
-                              color: OctopusColors.textSecondary,
+                              color: OctopusColors.isColorful
+                                  ? mastery.$2
+                                  : OctopusColors.textSecondary,
                             ),
                           ),
                           if (question.subject != null &&
                               question.subject!.isNotEmpty) ...[
                             const SizedBox(width: 10),
-                            Text(
-                              question.subject!,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: OctopusColors.textTertiary,
-                              ),
-                            ),
+                            _SubjectTag(subject: question.subject!),
                           ],
                           if (question.usesAiRedrawnFigure) ...[
                             const SizedBox(width: 10),
@@ -428,11 +447,50 @@ class _QuestionCard extends StatelessWidget {
     );
   }
 
+  /// 掌握状态的颜色。
+  ///
+  /// 单色主题里三个状态靠灰阶深浅区分；彩主题里用青绿/琥珀/紫，一眼能扫出来。
   (String, Color) _masteryOf(String mastery) => switch (mastery) {
-    'mastered' => ('已掌握', OctopusColors.textTertiary),
-    'reviewing' => ('复习中', OctopusColors.textSecondary),
+    'mastered' => ('已掌握', OctopusColors.success),
+    'reviewing' => ('复习中', OctopusColors.warning),
     _ => ('未掌握', OctopusColors.accent),
   };
+}
+
+/// 学科标签。
+///
+/// 同一个学科名永远落到同一个颜色（按字符码取模），这样孩子能靠颜色记住科目。
+/// 单色主题下 [OctopusColors.subjectColor] 会返回中性色，标签自动变回普通文字。
+class _SubjectTag extends StatelessWidget {
+  const _SubjectTag({required this.subject});
+
+  final String subject;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = OctopusColors.subjectColor(subject);
+    if (!OctopusColors.isColorful) {
+      return Text(
+        subject,
+        style: TextStyle(fontSize: 11.5, color: OctopusColors.textTertiary),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(OctopusRadius.pill),
+      ),
+      child: Text(
+        subject,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
 }
 
 /// 题目缩略图。没有图片文件时给一个占位，不留空白。
