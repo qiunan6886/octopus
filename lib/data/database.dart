@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../services/review_schedule.dart';
 import 'models.dart';
 
 export 'models.dart';
@@ -37,7 +38,7 @@ class OctopusDatabase {
   static Future<OctopusDatabase> openAt(String path) async {
     final db = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         // SQLite **默认不开外键约束**。不打开的话，建表时写的
         // `ON DELETE CASCADE` 完全不起作用，删掉一个孩子会留下一堆无主的题。
@@ -82,6 +83,13 @@ class OctopusDatabase {
       );
       await db.execute('ALTER TABLE questions ADD COLUMN grade_reason TEXT');
       await db.execute('ALTER TABLE questions ADD COLUMN graded_at INTEGER');
+    }
+    if (oldVersion < 5) {
+      // v5：复习计划。
+      //
+      // 老题没有计划，留空。查询把「没有计划」当成立刻可复习——否则升级之后
+      // 这些题永远不进复习队列，等于丢了。
+      await db.execute('ALTER TABLE questions ADD COLUMN next_review_at INTEGER');
     }
   }
 
@@ -160,6 +168,7 @@ class OctopusDatabase {
         grade_result           TEXT,
         grade_reason           TEXT,
         graded_at              INTEGER,
+        next_review_at         INTEGER,
         redrawn_svg            TEXT,
         variant_of_question_id INTEGER
       )
@@ -275,6 +284,9 @@ class OctopusDatabase {
     String? redrawnSvg,
     int? variantOfQuestionId,
   }) async {
+    final created = DateTime.now();
+    // 新题入库时就排好第一次复习，不用等用户来点。
+    final plan = planForNewQuestion(created);
     final id = await _db.insert('questions', {
       'profile_id': profileId,
       'content': content,
@@ -287,7 +299,10 @@ class OctopusDatabase {
       'grade_reason': gradeReason,
       'redrawn_svg': redrawnSvg,
       'variant_of_question_id': variantOfQuestionId,
-      'created_at': _now(),
+      'mastery': plan.mastery,
+      'review_count': plan.reviewCount,
+      'next_review_at': plan.nextReviewAt?.millisecondsSinceEpoch,
+      'created_at': created.millisecondsSinceEpoch,
     });
     _notify();
     return id;
@@ -398,14 +413,99 @@ class OctopusDatabase {
     String mastery,
   ) async {
     if (ids.isEmpty) return;
+    // 手动改掌握状态时一并重排复习计划：标成已掌握就不该再出现在复习队列里，
+    // 标回未掌握就该马上出现。
+    final plan = planForMastery(mastery, DateTime.now());
     final placeholders = List.filled(ids.length, '?').join(', ');
     await _db.update(
       'questions',
-      {'mastery': mastery},
+      {
+        'mastery': plan.mastery,
+        'review_count': plan.reviewCount,
+        'next_review_at': plan.nextReviewAt?.millisecondsSinceEpoch,
+        'last_reviewed_at': _now(),
+      },
       where: 'profile_id = ? AND id IN ($placeholders)',
       whereArgs: [profileId, ...ids],
     );
     _notify();
+  }
+
+  /// 今天该复习哪些题。
+  ///
+  /// **截止点用「明天零点」而不是「今天零点」**：`next_review_at` 存的是带时分
+  /// 的时间戳（入库时刻 + N 天），而「今天该复习」是按天算的。拿它和今天零点比
+  /// 的话，一个 10:30 到期的题今天永远不会到期——这个 bug 被测试抓到过。
+  /// 用明天零点当上界，含义才是「今天之内到期」。
+  Future<List<Question>> dueQuestions(int profileId, {DateTime? now}) async {
+    final clock = now ?? DateTime.now();
+    final cutoff = startOfDay(clock).add(const Duration(days: 1));
+    final rows = await _db.query(
+      'questions',
+      // 没有计划的（老数据）也算到期，否则升级上来的题永远不出现。
+      where:
+          'profile_id = ? AND mastery != ? '
+          'AND (next_review_at IS NULL OR next_review_at < ?)',
+      whereArgs: [profileId, 'mastered', cutoff.millisecondsSinceEpoch],
+      orderBy: 'next_review_at IS NULL DESC, next_review_at ASC',
+    );
+    return rows.map(Question.fromMap).toList();
+  }
+
+  /// 到期题数。错题库的角标用这个。
+  Future<int> dueCount(int profileId, {DateTime? now}) async {
+    final cutoff = startOfDay(now ?? DateTime.now()).add(
+      const Duration(days: 1),
+    );
+    final rows = await _db.rawQuery(
+      'SELECT COUNT(*) AS c FROM questions '
+      'WHERE profile_id = ? AND mastery != ? '
+      'AND (next_review_at IS NULL OR next_review_at < ?)',
+      [profileId, 'mastered', cutoff.millisecondsSinceEpoch],
+    );
+    return (rows.first['c'] as int?) ?? 0;
+  }
+
+  /// 把一批题标为「复习过了」，并按间隔重复推进下一次。
+  ///
+  /// 逐题用各自的 `review_count` 算下一次——不同题的进度不一样，统一加一的话
+  /// 间隔就乱了。
+  Future<int> markReviewed(
+    int profileId,
+    List<int> ids, {
+    DateTime? now,
+  }) async {
+    if (ids.isEmpty) return 0;
+    final clock = now ?? DateTime.now();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final rows = await _db.query(
+      'questions',
+      columns: ['id', 'review_count'],
+      where: 'profile_id = ? AND id IN ($placeholders)',
+      whereArgs: [profileId, ...ids],
+    );
+
+    var updated = 0;
+    for (final row in rows) {
+      final plan = planAfterReview(
+        previousCount: (row['review_count'] as int?) ?? 0,
+        from: clock,
+      );
+      await _db.update(
+        'questions',
+        {
+          'mastery': plan.mastery,
+          'review_count': plan.reviewCount,
+          'next_review_at': plan.nextReviewAt?.millisecondsSinceEpoch,
+          'last_reviewed_at': clock.millisecondsSinceEpoch,
+        },
+        where: 'profile_id = ? AND id = ?',
+        whereArgs: [profileId, row['id']],
+      );
+      updated++;
+    }
+    _notify();
+    return updated;
   }
 
   Future<List<QuestionElement>> elementsFor(int questionId) async {

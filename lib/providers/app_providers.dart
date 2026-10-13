@@ -320,6 +320,22 @@ final questionsProvider =
 final selectionProvider =
     NotifierProvider<SelectionNotifier, Set<int>>(SelectionNotifier.new);
 
+/// 今天该复习的题数。错题库的角标用这个。
+///
+/// 依赖 [questionsProvider] 是为了在批改、入库、标掌握之后能重算——
+/// 否则复习完角标还挂在那里。
+final dueCountProvider = FutureProvider.family<int, int>((ref, profileId) {
+  ref.watch(questionsProvider(profileId));
+  return ref.watch(databaseProvider).dueCount(profileId);
+});
+
+/// 今天该复习的题。
+final dueQuestionsProvider =
+    FutureProvider.family<List<Question>, int>((ref, profileId) {
+      ref.watch(questionsProvider(profileId));
+      return ref.watch(databaseProvider).dueQuestions(profileId);
+    });
+
 class SelectionNotifier extends Notifier<Set<int>> {
   @override
   Set<int> build() => const {};

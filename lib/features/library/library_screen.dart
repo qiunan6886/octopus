@@ -7,14 +7,16 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../app/theme/octopus_theme.dart';
 import '../../data/database.dart';
 import '../../providers/app_providers.dart';
+import '../../services/review_schedule.dart';
 import '../stats/stats_screen.dart';
 import 'question_actions.dart';
 
 /// 掌握状态的筛选项。
-enum _MasteryFilter { all, fresh, reviewing, mastered }
+enum _MasteryFilter { all, due, fresh, reviewing, mastered }
 
 const _masteryLabels = {
   _MasteryFilter.all: '全部',
+  _MasteryFilter.due: '今日待复习',
   _MasteryFilter.fresh: '未掌握',
   _MasteryFilter.reviewing: '复习中',
   _MasteryFilter.mastered: '已掌握',
@@ -52,6 +54,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
     final questions = switch (_filter) {
       _MasteryFilter.all => all,
+      // 到期判断按天，所以这里用同一套 isDue，而不是比较时间戳。
+      _MasteryFilter.due => all
+          .where(
+            (q) => isDue(q.nextReviewAt, q.mastery, DateTime.now()),
+          )
+          .toList(growable: false),
       _MasteryFilter.fresh =>
         all.where((q) => q.mastery == 'new').toList(growable: false),
       _MasteryFilter.reviewing =>
@@ -65,6 +73,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         if (!selectionMode)
           _LibraryHeader(
             total: all.length,
+            due: ref.watch(dueCountProvider(profile.id)).value ?? 0,
+            onShowDue: () => setState(() => _filter = _MasteryFilter.due),
             onStartSelection: () {
               if (all.isEmpty) return;
               ref.read(selectionModeProvider.notifier).enter();
@@ -166,7 +176,25 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     ref.read(selectionModeProvider.notifier).exit();
     ref.read(shellTabProvider.notifier).go(2);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已生成练习卷「$name」，共 ${ordered.length} 道题')),
+      SnackBar(
+        content: Text('已生成练习卷「$name」，共 ${ordered.length} 道题'),
+        // 打印完不等于复习完，所以不自动推进计划，而是给一个明确的动作。
+        // 孩子做完之后家长再点，复习计划和实际进度才对得上。
+        action: SnackBarAction(
+          label: '标记为已复习',
+          onPressed: () => _markReviewed(profile, ordered.map((q) => q.id)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _markReviewed(Profile profile, Iterable<int> ids) async {
+    final count = await ref
+        .read(databaseProvider)
+        .markReviewed(profile.id, ids.toList());
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已推进 $count 道题的复习计划')),
     );
   }
 
@@ -216,9 +244,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 }
 
 class _LibraryHeader extends StatelessWidget {
-  const _LibraryHeader({required this.total, required this.onStartSelection});
+  const _LibraryHeader({
+    required this.total,
+    required this.due,
+    required this.onShowDue,
+    required this.onStartSelection,
+  });
 
   final int total;
+
+  /// 今天该复习的题数。
+  final int due;
+
+  final VoidCallback onShowDue;
   final VoidCallback onStartSelection;
 
   @override
@@ -295,7 +333,74 @@ class _LibraryHeader extends StatelessWidget {
               ),
             ),
           ],
+          // 今天有题要复习时把它顶到最显眼的位置——这是这个应用存在的意义，
+          // 收题只是手段，重做才是目的。
+          if (due > 0) ...[
+            const SizedBox(height: 12),
+            _DueCard(count: due, onTap: onShowDue),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// 「今日待复习」提示卡。
+class _DueCard extends StatelessWidget {
+  const _DueCard({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: OctopusColors.accent,
+      borderRadius: BorderRadius.circular(OctopusRadius.card),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(OctopusRadius.card),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+          child: Row(
+            children: [
+              Icon(
+                Icons.event_repeat,
+                size: 20,
+                color: OctopusColors.onAccent,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '今日待复习 $count 道',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: OctopusColors.onAccent,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '点这里筛选出来，做成练习卷让孩子重做',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: OctopusColors.onAccent.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: OctopusColors.onAccent,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -418,7 +523,13 @@ class _QuestionCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            mastery.$1,
+                            // 显示「今天该复习 / 3 天后复习」比只写「未掌握」有用得多：
+                            // 家长看一眼就知道现在要不要动手。
+                            describeNextReview(
+                              question.nextReviewAt,
+                              question.mastery,
+                              DateTime.now(),
+                            ),
                             style: TextStyle(
                               fontSize: 11.5,
                               color: OctopusColors.isColorful
@@ -469,11 +580,74 @@ class _QuestionCard extends StatelessWidget {
     _ => ('未掌握', OctopusColors.accent),
   };
 }
-
 /// 学科标签。
 ///
 /// 同一个学科名永远落到同一个颜色（按字符码取模），这样孩子能靠颜色记住科目。
 /// 单色主题下 [OctopusColors.subjectColor] 会返回中性色，标签自动变回普通文字。
+/// 掌握状态的三选一。
+///
+/// 复习计划按「复习次数」自动推进，那只是个代理指标——真正该看的是孩子每次
+/// 重做对不对。所以这里必须能手动改回来。
+class _MasteryRow extends StatelessWidget {
+  const _MasteryRow({
+    required this.mastery,
+    required this.nextReviewAt,
+    required this.onChanged,
+  });
+
+  final String mastery;
+  final DateTime? nextReviewAt;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const options = {
+      'new': '未掌握',
+      'reviewing': '复习中',
+      'mastered': '已掌握',
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              '掌握状态',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+                color: OctopusColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              describeNextReview(nextReviewAt, mastery, DateTime.now()),
+              style: TextStyle(
+                fontSize: 12,
+                color: OctopusColors.textTertiary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final entry in options.entries)
+              ChoiceChip(
+                label: Text(entry.value),
+                selected: mastery == entry.key,
+                onSelected: (_) => onChanged(entry.key),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _SubjectTag extends StatelessWidget {
   const _SubjectTag({required this.subject});
 
@@ -744,6 +918,18 @@ class _QuestionDetail extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 24),
+          // 掌握状态。自动推进的复习计划只是个代理指标，家长随时能改。
+          _MasteryRow(
+            mastery: question.mastery,
+            nextReviewAt: question.nextReviewAt,
+            onChanged: (value) async {
+              await ref
+                  .read(databaseProvider)
+                  .setMastery(profile?.id ?? 0, [question.id], value);
+              if (context.mounted) Navigator.of(context).pop();
+            },
+          ),
+          const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () =>
                 showRedrawSheet(context, ref, question: question, grade: grade),

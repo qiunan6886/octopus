@@ -118,6 +118,13 @@ void main() {
       'original_image_path': '/tmp/old.jpg',
       'content': 'v1 时代的题',
     });
+    // 也塞一道**旧**错题进 v1 库，用来验证升级后它会不会进复习队列。
+    final oldQuestionId = await v1.insert('questions', {
+      'profile_id': profileId,
+      'content': 'v1 时代的错题',
+      'mastery': 'new',
+      'created_at': 1,
+    });
     await v1.close();
 
     // ---- 用当前代码打开，应当触发 onUpgrade ----
@@ -168,16 +175,29 @@ void main() {
     // v4 的字段：老题没有批改理由。
     expect(question.gradeReason, isNull);
 
+    // v5：**老题**没有复习计划，必须当成立刻可复习——否则升级上来的题永远
+    // 不进队列，用户会觉得题丢了。注意这里查的是升级前就在库里的那道题，
+    // 不是下面新插入的（新题会带上计划）。
+    final legacy = (await db.questionsFor(
+      profileId,
+    )).firstWhere((q) => q.id == oldQuestionId);
+    expect(legacy.nextReviewAt, isNull);
+    expect(await db.dueCount(profileId), greaterThanOrEqualTo(1));
+
     // 重绘结果可以写入，而且**默认不选中**——必须先让用户和原图对照。
     const svg = '<svg viewBox="0 0 10 10"><rect/></svg>';
     await db.setRedrawn(profileId, questionId, svg: svg);
-    var updated = (await db.questionsFor(profileId)).single;
+    // 库里现在有两道题（v1 遗留的 + 刚插入的），所以按 id 取而不是 .single。
+    Future<Question> reload(int id) async =>
+        (await db.questionsFor(profileId)).firstWhere((q) => q.id == id);
+
+    var updated = await reload(questionId);
     expect(updated.redrawnSvg, svg);
     expect(updated.usesAiRedrawnFigure, isFalse, reason: '存下来不等于选中');
 
     // 用户对照之后才切到重绘版。
     await db.setUseRedrawn(profileId, questionId, true);
-    updated = (await db.questionsFor(profileId)).single;
+    updated = await reload(questionId);
     expect(updated.usesAiRedrawnFigure, isTrue);
 
     // 变式题能记住来源。

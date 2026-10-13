@@ -170,6 +170,7 @@ class Question {
     this.correctAnswer,
     this.gradeResult,
     this.gradeReason,
+    this.nextReviewAt,
     this.redrawnSvg,
     this.variantOfQuestionId,
   });
@@ -211,6 +212,12 @@ class Question {
   /// 当初批改时 AI 给出的判断依据。
   final String? gradeReason;
 
+  /// 下一次该复习的时间。已掌握的题为 null。
+  ///
+  /// **老数据也是 null**，查询把 null 当作「立刻可复习」——否则升级上来的题
+  /// 永远不进队列。
+  final DateTime? nextReviewAt;
+
   factory Question.fromMap(Map<String, Object?> m) => Question(
     id: m['id']! as int,
     profileId: m['profile_id']! as int,
@@ -229,6 +236,9 @@ class Question {
     correctAnswer: m['correct_answer'] as String?,
     gradeResult: m['grade_result'] as String?,
     gradeReason: m['grade_reason'] as String?,
+    nextReviewAt: m['next_review_at'] == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(m['next_review_at']! as int),
     redrawnSvg: m['redrawn_svg'] as String?,
     variantOfQuestionId: m['variant_of_question_id'] as int?,
   );
