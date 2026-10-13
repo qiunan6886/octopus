@@ -38,10 +38,12 @@ rust/target/
 **/target/debug/
 **/target/release/
 
-# 构建产物：APK 走 GitHub Release，不进仓库
-*.apk
-*.aab
-*.ap_
+# 构建产物
+#
+# APK 例外：正常应该放 GitHub Release，但这台机器连不上 uploads.github.com
+# （Release 资源上传通道），所以改放在 docs/ 下——既在仓库里可下载，也能通过
+# Pages 直接下载。build/ 里的中间产物仍然忽略。
+build/
 
 # 文档/排版工具的临时产物
 tools/_*.py

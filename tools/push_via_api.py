@@ -41,13 +41,13 @@ HEADERS = {
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def api(method, path, payload=None):
+def api(method, path, payload=None, timeout=180):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         f"{API}{path}", data=data, headers=HEADERS, method=method
     )
     try:
-        with _OPENER.open(req, timeout=180) as resp:
+        with _OPENER.open(req, timeout=timeout) as resp:
             body = resp.read()
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as exc:
@@ -116,10 +116,15 @@ def main():
                 )
                 continue
             content = git("cat-file", "blob", f"{sha}:{path}", binary=True)
+            size_mb = len(content) / 1024 / 1024
+            if size_mb > 5:
+                print(f"      上传大文件 {path} ({size_mb:.1f} MB)，请稍候…")
             blob = api(
                 "POST",
                 f"/repos/{OWNER}/{REPO}/git/blobs",
                 {"content": base64.b64encode(content).decode(), "encoding": "base64"},
+                # 大文件要放宽超时：55 MB 的 APK 编码后约 74 MB。
+                timeout=900,
             )
             entries.append(
                 {"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]}
