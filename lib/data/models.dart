@@ -133,6 +133,8 @@ class Question {
     required this.lastReviewedAt,
     this.correctAnswer,
     this.gradeResult,
+    this.redrawnSvg,
+    this.variantOfQuestionId,
   });
 
   final int id;
@@ -151,6 +153,12 @@ class Question {
 
   /// 用了 AI 重绘的图形。打印时会在卷子上标记，提示家长核对。
   final bool usesAiRedrawnFigure;
+
+  /// AI 重绘出来的 SVG 源码。用户选过「用重绘版」才会打印它。
+  final String? redrawnSvg;
+
+  /// 这道题是从哪道题变出来的。变式题才有值。
+  final int? variantOfQuestionId;
 
   final int reviewCount;
   final DateTime createdAt;
@@ -180,6 +188,8 @@ class Question {
         : DateTime.fromMillisecondsSinceEpoch(m['last_reviewed_at']! as int),
     correctAnswer: m['correct_answer'] as String?,
     gradeResult: m['grade_result'] as String?,
+    redrawnSvg: m['redrawn_svg'] as String?,
+    variantOfQuestionId: m['variant_of_question_id'] as int?,
   );
 }
 

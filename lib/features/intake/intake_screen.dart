@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../app/theme/octopus_theme.dart';
 import '../../providers/app_providers.dart';
+import '../../services/ocr_service.dart';
+import '../../services/question_splitter.dart';
 import '../review/review_screen.dart';
 
 /// 录入：拍一张（或选一张）试卷，然后框选出错题。
@@ -167,6 +169,9 @@ class _CropScreenState extends ConsumerState<CropScreen> {
   /// 已经识别完的题数，只用来显示进度。
   int _ocrDone = 0;
 
+  /// 正在跑自动切题。
+  bool _autoSplitting = false;
+
   @override
   void initState() {
     super.initState();
@@ -184,12 +189,14 @@ class _CropScreenState extends ConsumerState<CropScreen> {
       appBar: AppBar(
         title: const Text('框出错题'),
         actions: [
-          if (_rects.isNotEmpty && !_saving)
+          if (!_saving && !_autoSplitting)
+            TextButton(onPressed: _autoSplit, child: const Text('自动切题')),
+          if (_rects.isNotEmpty && !_saving && !_autoSplitting)
             TextButton(
               onPressed: _finish,
               child: Text('完成（${_rects.length}）'),
             ),
-          if (_saving)
+          if (_saving || _autoSplitting)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Center(
@@ -199,7 +206,8 @@ class _CropScreenState extends ConsumerState<CropScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
-            ),        ],
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -306,6 +314,78 @@ class _CropScreenState extends ConsumerState<CropScreen> {
     // 太小的框基本是误触。
     if (r == null || r.width < 0.03 || r.height < 0.015) return;
     setState(() => _rects.add(r));
+  }
+
+  /// 自动切题：用端上识别拿文字块坐标，再按题号/空白分段。
+  ///
+  /// **只作预切分**，结果直接填进框里让用户增删改——设计文档里定的是
+  /// 「宁可多切几块让用户合并，也不要漏题」，所以自动切完必须还能手动调。
+  ///
+  /// 始终用**本地**引擎，即使设置里选的是云端：自动切题要的是坐标，
+  /// 而云端只返回纯文本，拿不到位置。云端引擎留给确认页的「识别文字」用。
+  Future<void> _autoSplit() async {
+    final size = _imageSize;
+    if (size == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('读不到图片尺寸')));
+      return;
+    }
+
+    setState(() => _autoSplitting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final outcome = await MlKitOcrEngine().recognize(widget.imagePath);
+      if (!mounted) return;
+
+      if (!outcome.hasGeometry) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('没识别到文字，请手动框选')),
+        );
+        return;
+      }
+
+      final regions = splitIntoQuestions(
+        lines: outcome.lines,
+        pageSize: size,
+      );
+      if (regions.isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('没切出题目，请手动框选')),
+        );
+        return;
+      }
+
+      setState(() {
+        // 自动切的结果**替换**当前所有框：用户点这个按钮的意图就是要重来。
+        _rects
+          ..clear()
+          ..addAll(regions.map((r) => r.box));
+      });
+
+      final markers = regions
+          .where((r) => r.marker != null)
+          .map((r) => r.marker)
+          .take(3)
+          .join(' ');
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            markers.isEmpty
+                ? '自动切出 ${regions.length} 道，可手动调整'
+                : '自动切出 ${regions.length} 道（$markers…），可手动调整',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('自动切题失败：$error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _autoSplitting = false);
+    }
   }
 
   /// 把每个框裁出来存成独立文件，登记为待确认题，并**顺手识别文字**。

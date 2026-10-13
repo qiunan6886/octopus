@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../app/theme/octopus_theme.dart';
 import '../../data/database.dart';
 import '../../providers/app_providers.dart';
+import 'question_actions.dart';
 
 /// 掌握状态的筛选项。
 enum _MasteryFilter { all, fresh, reviewing, mastered }
@@ -601,14 +603,23 @@ class _SelectionBar extends StatelessWidget {
   }
 }
 
-/// 题目详情。阶段一只读，编辑留给阶段二。
-class _QuestionDetail extends StatelessWidget {
+/// 题目详情。
+///
+/// 阶段一只读；现在这里多了两个 AI 动作：重绘（去笔迹）和出变式题。
+class _QuestionDetail extends ConsumerWidget {
   const _QuestionDetail({required this.question});
 
   final Question question;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profile = ref.watch(currentProfileObjectProvider);
+    final grade = profile?.grade ?? 4;
+    // 用选中版本决定展示哪张：和打印时保持同一套判断。
+    final showRedrawn =
+        question.usesAiRedrawnFigure &&
+        (question.redrawnSvg?.isNotEmpty ?? false);
+
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.7,
@@ -628,13 +639,54 @@ class _QuestionDetail extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          if (question.originalImagePath != null)
+          if (showRedrawn)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                color: Colors.white,
+                padding: const EdgeInsets.all(12),
+                child: SvgPicture.string(question.redrawnSvg!),
+              ),
+            )
+          else if (question.originalImagePath != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(OctopusRadius.card),
               child: Image.file(
                 File(question.originalImagePath!),
                 fit: BoxFit.contain,
                 errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+          if (showRedrawn)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '这是 AI 重绘版。打印的卷子上会标注，提示核对。',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: OctopusColors.textTertiary,
+                ),
+              ),
+            ),
+          if (question.variantOfQuestionId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.auto_awesome,
+                    size: 13,
+                    color: OctopusColors.textTertiary,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '这是 AI 生成的变式题',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: OctopusColors.textTertiary,
+                    ),
+                  ),
+                ],
               ),
             ),
           const SizedBox(height: 20),
@@ -645,6 +697,58 @@ class _QuestionDetail extends StatelessWidget {
               height: 1.8,
               color: OctopusColors.textPrimary,
             ),
+          ),
+          if (question.correctAnswer != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: OctopusColors.surfaceHigh,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '正确答案',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: OctopusColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SelectableText(
+                      question.correctAnswer!,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.7,
+                        color: OctopusColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: () =>
+                showRedrawSheet(context, ref, question: question, grade: grade),
+            icon: const Icon(Icons.auto_fix_high, size: 18),
+            label: Text(showRedrawn ? '重绘设置' : 'AI 重绘（去掉笔迹）'),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: () => showVariantsSheet(
+              context,
+              ref,
+              question: question,
+              grade: grade,
+            ),
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: const Text('出几道变式题'),
           ),
         ],
       ),

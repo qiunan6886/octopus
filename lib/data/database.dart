@@ -38,7 +38,7 @@ class OctopusDatabase {
   static Future<OctopusDatabase> openAt(String path) async {
     final db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onConfigure: (db) async {
         // SQLite **默认不开外键约束**。不打开的话，建表时写的
         // `ON DELETE CASCADE` 完全不起作用，删掉一个孩子会留下一堆无主的题。
@@ -51,15 +51,16 @@ class OctopusDatabase {
     return OctopusDatabase._(db);
   }
 
-  /// v1 -> v2：加入拍照批改的三个字段。
+  /// 逐版本升级。
   ///
-  /// 已有的题目没有批改结果，留空即可——界面把空值当作「未判断」。
+  /// 每个版本只加列、不改列，所以老库升上来不会丢数据。
   static Future<void> _upgradeSchema(
     Database db,
     int oldVersion,
     int newVersion,
   ) async {
     if (oldVersion < 2) {
+      // v2：拍照批改。
       await db.execute('ALTER TABLE draft_questions ADD COLUMN grade_result TEXT');
       await db.execute(
         'ALTER TABLE draft_questions ADD COLUMN correct_answer TEXT',
@@ -67,6 +68,13 @@ class OctopusDatabase {
       await db.execute('ALTER TABLE draft_questions ADD COLUMN grade_source TEXT');
       await db.execute('ALTER TABLE questions ADD COLUMN correct_answer TEXT');
       await db.execute('ALTER TABLE questions ADD COLUMN grade_result TEXT');
+    }
+    if (oldVersion < 3) {
+      // v3：AI 重绘 + 变式题。
+      await db.execute('ALTER TABLE questions ADD COLUMN redrawn_svg TEXT');
+      await db.execute(
+        'ALTER TABLE questions ADD COLUMN variant_of_question_id INTEGER',
+      );
     }
   }
 
@@ -141,7 +149,9 @@ class OctopusDatabase {
         created_at             INTEGER NOT NULL,
         last_reviewed_at       INTEGER,
         correct_answer         TEXT,
-        grade_result           TEXT
+        grade_result           TEXT,
+        redrawn_svg            TEXT,
+        variant_of_question_id INTEGER
       )
     ''');
 
@@ -251,6 +261,8 @@ class OctopusDatabase {
     bool usesAiRedrawnFigure = false,
     String? correctAnswer,
     String? gradeResult,
+    String? redrawnSvg,
+    int? variantOfQuestionId,
   }) async {
     final id = await _db.insert('questions', {
       'profile_id': profileId,
@@ -261,10 +273,46 @@ class OctopusDatabase {
       'uses_ai_redrawn_figure': usesAiRedrawnFigure ? 1 : 0,
       'correct_answer': correctAnswer,
       'grade_result': gradeResult,
+      'redrawn_svg': redrawnSvg,
+      'variant_of_question_id': variantOfQuestionId,
       'created_at': _now(),
     });
     _notify();
     return id;
+  }
+
+  /// 存下 AI 重绘的结果。
+  ///
+  /// 存下来但**默认不选中**（`use` 传 false）：设计上要求用户先和原图对照，
+  /// 看过之后才决定用哪个。自动选中就等于替用户做了这个判断。
+  Future<void> setRedrawn(
+    int profileId,
+    int questionId, {
+    required String svg,
+    bool use = false,
+  }) async {
+    await _db.update(
+      'questions',
+      {'redrawn_svg': svg, 'uses_ai_redrawn_figure': use ? 1 : 0},
+      where: 'profile_id = ? AND id = ?',
+      whereArgs: [profileId, questionId],
+    );
+    _notify();
+  }
+
+  /// 切换用原图还是用 AI 重绘。
+  Future<void> setUseRedrawn(
+    int profileId,
+    int questionId,
+    bool use,
+  ) async {
+    await _db.update(
+      'questions',
+      {'uses_ai_redrawn_figure': use ? 1 : 0},
+      where: 'profile_id = ? AND id = ?',
+      whereArgs: [profileId, questionId],
+    );
+    _notify();
   }
 
   Future<void> deleteQuestions(int profileId, List<int> ids) async {

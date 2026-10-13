@@ -453,6 +453,13 @@ class _PreviewItem extends StatelessWidget {
   }
 }
 
+/// 这道题该不该打重绘版。
+///
+/// 两个条件都要满足：用户选过重绘版，而且重绘的 SVG 确实存在。少判后一个就会
+/// 在 SVG 为空时崩掉。
+bool _useRedrawn(Question question) =>
+    question.usesAiRedrawnFigure && (question.redrawnSvg?.isNotEmpty ?? false);
+
 /// 把练习卷排成 A4 PDF。
 ///
 /// 在预览和打印之间共用同一个函数，保证「看到的」和「打出来的」是同一份东西。
@@ -536,7 +543,19 @@ Future<Uint8List> buildWorksheetPdf({
                   ],
                 ),
                 pw.SizedBox(height: 6),
-                if (images[i].bytes.isNotEmpty)
+                // 选了重绘版的题打 SVG，否则打原图。
+                //
+                // `pdf` 包原生支持 SVG，所以重绘的结果不需要先栅格化就能印——
+                // 这也是当初让模型输出 SVG 而不是位图的原因之一。
+                if (_useRedrawn(questions[i]))
+                  pw.ConstrainedBox(
+                    constraints: const pw.BoxConstraints(maxHeight: 320),
+                    child: pw.SvgImage(
+                      svg: questions[i].redrawnSvg!,
+                      fit: pw.BoxFit.contain,
+                    ),
+                  )
+                else if (images[i].bytes.isNotEmpty)
                   pw.ConstrainedBox(
                     constraints: const pw.BoxConstraints(maxHeight: 320),
                     child: pw.Image(images[i], fit: pw.BoxFit.contain),

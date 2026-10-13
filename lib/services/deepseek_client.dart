@@ -37,6 +37,27 @@ class DeepSeekClient {
 
   bool get hasKey => apiKey.trim().isNotEmpty;
 
+  /// 纯文字请求，要求模型回 JSON。变式题用得上——不需要传图。
+  Future<String> chatJsonOnly(String prompt) async {
+    if (!hasKey) {
+      throw DeepSeekException('还没有配置 DeepSeek API Key');
+    }
+
+    final payload = <String, Object?>{
+      'model': model,
+      'messages': [
+        {
+          'role': 'user',
+          'content': prompt,
+        },
+      ],
+      'response_format': {'type': 'json_object'},
+      'temperature': 0.4,
+    };
+
+    return _send(payload);
+  }
+
   /// 发一次「指令 + 图片」的请求，返回助手回复的正文。
   ///
   /// [detail] 传 `high` 或 `low`：手写笔迹和公式需要 high；单纯的印刷体文字
@@ -75,6 +96,11 @@ class DeepSeekClient {
       if (jsonOutput) 'response_format': {'type': 'json_object'},
     };
 
+    return _send(payload);
+  }
+
+  /// 发一次请求并取回助手正文。错误统一翻译成人话。
+  Future<String> _send(Map<String, Object?> payload) async {
     final client = HttpClient();
     client.connectionTimeout = timeout;
     try {

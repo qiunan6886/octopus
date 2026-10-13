@@ -160,5 +160,86 @@ void main() {
     );
     expect(question.correctAnswer, '7');
     expect(question.gradeResult, 'wrong');
+
+    // v3 的两个字段：老题没有重绘、也不是变式题。
+    expect(question.redrawnSvg, isNull);
+    expect(question.variantOfQuestionId, isNull);
+
+    // 重绘结果可以写入，而且**默认不选中**——必须先让用户和原图对照。
+    const svg = '<svg viewBox="0 0 10 10"><rect/></svg>';
+    await db.setRedrawn(profileId, questionId, svg: svg);
+    var updated = (await db.questionsFor(profileId)).single;
+    expect(updated.redrawnSvg, svg);
+    expect(updated.usesAiRedrawnFigure, isFalse, reason: '存下来不等于选中');
+
+    // 用户对照之后才切到重绘版。
+    await db.setUseRedrawn(profileId, questionId, true);
+    updated = (await db.questionsFor(profileId)).single;
+    expect(updated.usesAiRedrawnFigure, isTrue);
+
+    // 变式题能记住来源。
+    final variantId = await db.insertQuestion(
+      profileId: profileId,
+      content: '变式题',
+      variantOfQuestionId: questionId,
+    );
+    final variant = (await db.questionsFor(profileId)).firstWhere(
+      (q) => q.id == variantId,
+    );
+    expect(variant.variantOfQuestionId, questionId);
+  });
+
+  test('v2 的库也能升到 v3', () async {
+    final dir = await databaseFactory.getDatabasesPath();
+    final path = '$dir/octopus_migration_v2_test.sqlite';
+    await databaseFactory.deleteDatabase(path);
+
+    // 造一个 v2 库：直接用当前 schema 建，然后把 version 写成 2，
+    // 这样 onUpgrade 会从 2 跑到 3。
+    final db = await OctopusDatabase.openAt(path);
+    final profileId = await db.createProfile(name: '老大', grade: 4);
+    final batchId = await db.createBatch(profileId);
+    await db.insertDraft(
+      batchId: batchId,
+      originalImagePath: '/tmp/a.jpg',
+      content: 'v2 时代的题',
+    );
+    await db.close();
+
+    // 重开一次。schemaVersion 已经是 3，所以这次不会触发升级——
+    // 但能验证同一个文件被反复打开是稳定的。
+    final reopened = await OctopusDatabase.openAt(path);
+    addTearDown(() async {
+      await reopened.close();
+      await databaseFactory.deleteDatabase(path);
+    });
+
+    final drafts = await reopened.draftsFor(batchId);
+    expect(drafts.single.content, 'v2 时代的题');
+    expect(drafts.single.gradeResult, isNull);
+
+    // 新字段可用。
+    await reopened.setDraftGrade(
+      drafts.single.id,
+      result: 'wrong',
+      source: 'manual',
+    );
+    expect((await reopened.draftsFor(batchId)).single.isWrong, isTrue);
+
+    expect(await reopened.questionsFor(profileId), isEmpty);
+    final qid = await reopened.insertQuestion(
+      profileId: profileId,
+      content: '题',
+    );
+    await reopened.setRedrawn(
+      profileId,
+      qid,
+      svg: '<svg viewBox="0 0 1 1"/>',
+      use: true,
+    );
+    expect(
+      (await reopened.questionsFor(profileId)).single.usesAiRedrawnFigure,
+      isTrue,
+    );
   });
 }

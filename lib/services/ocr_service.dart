@@ -1,17 +1,31 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import 'deepseek_client.dart';
+import 'question_splitter.dart';
 
 /// OCR 结果。
 class OcrOutcome {
-  const OcrOutcome({required this.text, required this.engine});
+  const OcrOutcome({
+    required this.text,
+    required this.engine,
+    this.lines = const [],
+  });
 
   final String text;
 
   /// local / cloud —— 记下来是因为两者质量不同，出问题时能知道是谁识别的。
   final String engine;
+
+  /// 带坐标的文字行，供自动切题使用。
+  ///
+  /// 云端引擎（DeepSeek）只返回纯文本，拿不到坐标，所以这里可能为空——
+  /// 自动切题会退回手动框选。
+  final List<PageLine> lines;
+
+  bool get hasGeometry => lines.isNotEmpty;
 }
 
 /// 文字识别的统一接口。
@@ -58,13 +72,32 @@ class MlKitOcrEngine implements OcrEngine {
         });
 
       final buffer = StringBuffer();
+      final lines = <PageLine>[];
       for (final block in blocks) {
         for (final line in block.lines) {
           final text = line.text.trim();
-          if (text.isNotEmpty) buffer.writeln(text);
+          if (text.isEmpty) continue;
+          buffer.writeln(text);
+          // ML Kit 给的是整数像素坐标，转成 Rect 供切题用。
+          final box = line.boundingBox;
+          lines.add(
+            PageLine(
+              text: text,
+              box: Rect.fromLTRB(
+                box.left.toDouble(),
+                box.top.toDouble(),
+                box.right.toDouble(),
+                box.bottom.toDouble(),
+              ),
+            ),
+          );
         }
       }
-      return OcrOutcome(text: buffer.toString().trim(), engine: id);
+      return OcrOutcome(
+        text: buffer.toString().trim(),
+        engine: id,
+        lines: lines,
+      );
     } finally {
       await recognizer.close();
     }
