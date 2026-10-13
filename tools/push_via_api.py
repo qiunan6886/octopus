@@ -67,7 +67,14 @@ def git(*args, binary=False):
 
 
 def changed_files(parent, commit):
-    """[(status, path)] for one commit. -z avoids git's path quoting."""
+    """[(status, old_path, new_path)] for one commit. -z avoids git's path quoting.
+
+    Renames and copies carry two paths. Git reports a delete+add as a rename when
+    the two files are similar enough -- for a 19 MB APK swapped for a 19.5 MB one
+    it does -- so a rename must produce BOTH a deletion of the old path and an
+    addition of the new one. Handling only the new path leaves the old file on
+    the server, which is exactly what happened the first time this ran.
+    """
     raw = git("diff", "--name-status", "-z", parent, commit)
     fields = raw.split("\0")
     result = []
@@ -77,12 +84,12 @@ def changed_files(parent, commit):
         if not code:
             i += 1
             continue
-        # 重命名会多出一个路径字段
-        if code.startswith("R") or code.startswith("C"):
-            result.append((code[0], fields[i + 2]))
+        if code[0] in ("R", "C"):
+            # R<score>\0old\0new\0
+            result.append((code[0], fields[i + 1], fields[i + 2]))
             i += 3
         else:
-            result.append((code[0], fields[i + 1]))
+            result.append((code[0], fields[i + 1], fields[i + 1]))
             i += 2
     return result
 
@@ -109,26 +116,46 @@ def main():
         ]
 
         entries = []
-        for code, path in changed_files(sha + "^", sha):
+        for code, old_path, new_path in changed_files(sha + "^", sha):
             if code == "D":
                 entries.append(
-                    {"path": path, "mode": "100644", "type": "blob", "sha": None}
+                    {
+                        "path": old_path,
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": None,
+                    }
                 )
                 continue
-            content = git("cat-file", "blob", f"{sha}:{path}", binary=True)
+            content = git("cat-file", "blob", f"{sha}:{new_path}", binary=True)
             size_mb = len(content) / 1024 / 1024
             if size_mb > 5:
-                print(f"      上传大文件 {path} ({size_mb:.1f} MB)，请稍候…")
+                print(f"      上传大文件 {new_path} ({size_mb:.1f} MB)，请稍候…")
             blob = api(
                 "POST",
                 f"/repos/{OWNER}/{REPO}/git/blobs",
                 {"content": base64.b64encode(content).decode(), "encoding": "base64"},
-                # 大文件要放宽超时：55 MB 的 APK 编码后约 74 MB。
+                # 大文件要放宽超时：19 MB 的 APK 编码后约 26 MB。
                 timeout=900,
             )
             entries.append(
-                {"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]}
+                {
+                    "path": new_path,
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob["sha"],
+                }
             )
+            # 重命名：新路径要加，旧路径也要删掉。
+            if code in ("R", "C") and old_path != new_path:
+                entries.append(
+                    {
+                        "path": old_path,
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": None,
+                    }
+                )
 
         tree = api(
             "POST",
