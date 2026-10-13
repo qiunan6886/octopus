@@ -98,6 +98,57 @@ void main() {
     );
   });
 
+  test('解析出学科和知识点', () {
+    final outcome = DeepSeekGrader.parseResponse(
+      envelope(
+        '{"correct": false, "correctAnswer": "42", "reason": "竖式第二行忘了进位",'
+        '"subject": "数学", "knowledgePoints": ["两位数乘一位数", "进位"]}',
+      ),
+    );
+    expect(outcome.subject, '数学');
+    expect(outcome.knowledgePoints, ['两位数乘一位数', '进位']);
+    expect(outcome.knowledgeTags, '两位数乘一位数、进位');
+    expect(outcome.reason, '竖式第二行忘了进位');
+  });
+
+  test('知识点写成顿号分隔的字符串也认', () {
+    final outcome = DeepSeekGrader.parseResponse(
+      envelope('{"correct": true, "knowledgePoints": "分数加法、通分"}'),
+    );
+    expect(outcome.knowledgePoints, ['分数加法', '通分']);
+  });
+
+  test('知识点写成下划线字段名或 knowledgeTags 也认', () {
+    expect(
+      DeepSeekGrader.parseResponse(
+        envelope('{"correct": true, "knowledge_points": ["A", "B"]}'),
+      ).knowledgePoints,
+      ['A', 'B'],
+    );
+    expect(
+      DeepSeekGrader.parseResponse(
+        envelope('{"correct": true, "knowledgeTags": ["C"]}'),
+      ).knowledgePoints,
+      ['C'],
+    );
+  });
+
+  test('知识点里的空条目被剔掉', () {
+    final outcome = DeepSeekGrader.parseResponse(
+      envelope('{"correct": true, "knowledgePoints": ["A", "", "  ", "B"]}'),
+    );
+    expect(outcome.knowledgePoints, ['A', 'B']);
+  });
+
+  test('没有学科知识点时为 null / 空，而不是报错', () {
+    final outcome = DeepSeekGrader.parseResponse(
+      envelope('{"correct": true, "correctAnswer": "8"}'),
+    );
+    expect(outcome.subject, isNull);
+    expect(outcome.knowledgePoints, isEmpty);
+    expect(outcome.knowledgeTags, isNull);
+  });
+
   test('没有 API Key 时立即报错，不发请求', () async {
     final grader = DeepSeekGrader(apiKey: '  ');
     expect(

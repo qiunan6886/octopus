@@ -181,8 +181,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       subject: draft.subject,
       correctAnswer: draft.correctAnswer,
       gradeResult: draft.gradeResult,
-      // 做对的题（设置允许保留时）直接标成已掌握，不占用复习列表。
-      usesAiRedrawnFigure: false,
+      // 理由跟着题一起进库，以后在错题详情里还能看到当初为什么判错。
+      gradeReason: draft.gradeReason,
     );
     await db.updateDraft(
       draft.id,
@@ -356,6 +356,10 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
             result: outcome.gradeResult,
             correctAnswer: outcome.correctAnswer,
             source: 'ai',
+            // 理由和分类都是同一次调用给的，一起存下来。
+            reason: outcome.reason,
+            subject: outcome.subject ?? draft.subject,
+            knowledgeTags: outcome.knowledgeTags,
           );
         } on GradeException catch (error) {
           setState(() => _errors.add('第 ${drafts.indexOf(draft) + 1} 题：${error.message}'));
@@ -648,6 +652,17 @@ class _DraftCard extends StatelessWidget {
                 onEdit: onEditAnswer,
               ),
             ],
+            // AI 的判断依据。没有它家长只能看到一个「错」字，没法判断是孩子错了
+            // 还是模型看错了。
+            if (gradingOn && draft.gradeSource == 'ai' &&
+                (draft.gradeReason?.isNotEmpty ?? false)) ...[
+              const SizedBox(height: 8),
+              _ReasonBox(
+                reason: draft.gradeReason!,
+                subject: draft.subject,
+                knowledgeTags: draft.knowledgeTags,
+              ),
+            ],
             const SizedBox(height: 12),
             if (!settled) ...[
               if (gradingOn) ...[
@@ -824,8 +839,106 @@ class _AnswerBox extends StatelessWidget {
   }
 }
 
-class _GradeButton extends StatelessWidget {
-  const _GradeButton({
+/// AI 的判断依据 + 识别出的学科知识点。
+///
+/// 这是「可核对性」的载体：家长看完这句话才知道该不该信这个判断。
+class _ReasonBox extends StatelessWidget {
+  const _ReasonBox({
+    required this.reason,
+    required this.subject,
+    required this.knowledgeTags,
+  });
+
+  final String reason;
+  final String? subject;
+  final String? knowledgeTags;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTags =
+        (knowledgeTags?.isNotEmpty ?? false) || (subject?.isNotEmpty ?? false);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: OctopusColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.auto_awesome,
+                size: 13,
+                color: OctopusColors.textTertiary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  reason,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.6,
+                    color: OctopusColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (hasTags) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (subject?.isNotEmpty ?? false)
+                  _Tag(label: subject!, color: OctopusColors.subjectColor(subject)),
+                if (knowledgeTags?.isNotEmpty ?? false)
+                  for (final tag in knowledgeTags!.split('、'))
+                    if (tag.trim().isNotEmpty)
+                      _Tag(
+                        label: tag.trim(),
+                        color: OctopusColors.textSecondary,
+                      ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  const _Tag({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(OctopusRadius.pill),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _GradeButton extends StatelessWidget {  const _GradeButton({
     required this.label,
     required this.icon,
     required this.active,

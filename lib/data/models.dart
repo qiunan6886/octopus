@@ -7,6 +7,29 @@
 /// 每个类都提供 `fromMap`，字段名与建表语句里的列名一一对应。
 library;
 
+/// 某个学科的批改统计。
+///
+/// 口径是**批改过的题**，不是入库的题——做对的题默认不占错题库名额，但它们
+/// 同样是批改结果，漏掉的话正确率会永远接近 0。
+class SubjectStat {
+  const SubjectStat({
+    required this.subject,
+    required this.correct,
+    required this.wrong,
+  });
+
+  final String subject;
+  final int correct;
+  final int wrong;
+
+  int get total => correct + wrong;
+
+  /// 正确率，0..1。没有批改记录时按 0 处理，避免除零。
+  double get accuracy => total == 0 ? 0 : correct / total;
+
+  int get accuracyPercent => (accuracy * 100).round();
+}
+
 class Profile {
   const Profile({
     required this.id,
@@ -64,6 +87,8 @@ class DraftQuestion {
     this.gradeResult,
     this.correctAnswer,
     this.gradeSource,
+    this.gradeReason,
+    this.knowledgeTags,
   });
 
   final int id;
@@ -97,6 +122,15 @@ class DraftQuestion {
   /// 分开记是因为两者的可信度不同——AI 判断错的题值得复核，手动标记不用。
   final String? gradeSource;
 
+  /// AI 给出的判断依据。
+  ///
+  /// 展示出来家长才能核对「是孩子错了还是模型看错了」。只有一个「错」字的话，
+  /// 家长没法判断该不该信。
+  final String? gradeReason;
+
+  /// 批改时识别出的学科与知识点。
+  final String? knowledgeTags;
+
   bool get isCorrect => gradeResult == 'correct';
   bool get isWrong => gradeResult == 'wrong';
   bool get isGraded => gradeResult != null;
@@ -113,6 +147,8 @@ class DraftQuestion {
     gradeResult: m['grade_result'] as String?,
     correctAnswer: m['correct_answer'] as String?,
     gradeSource: m['grade_source'] as String?,
+    gradeReason: m['grade_reason'] as String?,
+    knowledgeTags: m['knowledge_tags'] as String?,
   );
 }
 
@@ -133,6 +169,7 @@ class Question {
     required this.lastReviewedAt,
     this.correctAnswer,
     this.gradeResult,
+    this.gradeReason,
     this.redrawnSvg,
     this.variantOfQuestionId,
   });
@@ -171,6 +208,9 @@ class Question {
   /// 题，也会有 correct。
   final String? gradeResult;
 
+  /// 当初批改时 AI 给出的判断依据。
+  final String? gradeReason;
+
   factory Question.fromMap(Map<String, Object?> m) => Question(
     id: m['id']! as int,
     profileId: m['profile_id']! as int,
@@ -188,6 +228,7 @@ class Question {
         : DateTime.fromMillisecondsSinceEpoch(m['last_reviewed_at']! as int),
     correctAnswer: m['correct_answer'] as String?,
     gradeResult: m['grade_result'] as String?,
+    gradeReason: m['grade_reason'] as String?,
     redrawnSvg: m['redrawn_svg'] as String?,
     variantOfQuestionId: m['variant_of_question_id'] as int?,
   );

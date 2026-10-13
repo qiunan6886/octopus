@@ -7,7 +7,6 @@ import 'package:sqflite/sqflite.dart';
 import 'models.dart';
 
 export 'models.dart';
-
 /// 本地数据库。
 ///
 /// 用 `sqflite` 而不是 drift：drift 2.32 之后的版本会在**编译时**从 GitHub
@@ -38,7 +37,7 @@ class OctopusDatabase {
   static Future<OctopusDatabase> openAt(String path) async {
     final db = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         // SQLite **默认不开外键约束**。不打开的话，建表时写的
         // `ON DELETE CASCADE` 完全不起作用，删掉一个孩子会留下一堆无主的题。
@@ -75,6 +74,14 @@ class OctopusDatabase {
       await db.execute(
         'ALTER TABLE questions ADD COLUMN variant_of_question_id INTEGER',
       );
+    }
+    if (oldVersion < 4) {
+      // v4：批改的理由、学科、知识点。老数据这些字段为空，统计时按「未分类」算。
+      await db.execute(
+        'ALTER TABLE draft_questions ADD COLUMN grade_reason TEXT',
+      );
+      await db.execute('ALTER TABLE questions ADD COLUMN grade_reason TEXT');
+      await db.execute('ALTER TABLE questions ADD COLUMN graded_at INTEGER');
     }
   }
 
@@ -129,7 +136,8 @@ class OctopusDatabase {
         sort_order           INTEGER NOT NULL DEFAULT 0,
         grade_result         TEXT,
         correct_answer       TEXT,
-        grade_source         TEXT
+        grade_source         TEXT,
+        grade_reason         TEXT
       )
     ''');
 
@@ -150,6 +158,8 @@ class OctopusDatabase {
         last_reviewed_at       INTEGER,
         correct_answer         TEXT,
         grade_result           TEXT,
+        grade_reason           TEXT,
+        graded_at              INTEGER,
         redrawn_svg            TEXT,
         variant_of_question_id INTEGER
       )
@@ -261,6 +271,7 @@ class OctopusDatabase {
     bool usesAiRedrawnFigure = false,
     String? correctAnswer,
     String? gradeResult,
+    String? gradeReason,
     String? redrawnSvg,
     int? variantOfQuestionId,
   }) async {
@@ -273,12 +284,66 @@ class OctopusDatabase {
       'uses_ai_redrawn_figure': usesAiRedrawnFigure ? 1 : 0,
       'correct_answer': correctAnswer,
       'grade_result': gradeResult,
+      'grade_reason': gradeReason,
       'redrawn_svg': redrawnSvg,
       'variant_of_question_id': variantOfQuestionId,
       'created_at': _now(),
     });
     _notify();
     return id;
+  }
+
+  // -------------------------------------------------------------------------
+  // 批改统计
+  // -------------------------------------------------------------------------
+
+  /// 某个孩子的批改记录汇总。
+  ///
+  /// 统计口径是 `draft_questions` 而不是 `questions`：做对的题默认**不入库**，
+  /// 但它们同样是批改结果。只看 questions 的话正确率永远接近 0，那是错的。
+  ///
+  /// 一次批改过的题只算一次（`grade_result` 非空），没批改的不参与统计。
+  Future<List<SubjectStat>> gradingStats(int profileId) async {
+    final rows = await _db.rawQuery(
+      '''
+      SELECT
+        COALESCE(NULLIF(TRIM(d.subject), ''), '未分类') AS subject,
+        SUM(CASE WHEN d.grade_result = 'correct' THEN 1 ELSE 0 END) AS correct,
+        SUM(CASE WHEN d.grade_result = 'wrong'   THEN 1 ELSE 0 END) AS wrong
+      FROM draft_questions d
+      JOIN intake_batches b ON b.id = d.batch_id
+      WHERE b.profile_id = ? AND d.grade_result IS NOT NULL
+      GROUP BY subject
+      ORDER BY (correct + wrong) DESC
+      ''',
+      [profileId],
+    );
+
+    return rows
+        .map(
+          (row) => SubjectStat(
+            subject: row['subject']! as String,
+            correct: (row['correct'] as int?) ?? 0,
+            wrong: (row['wrong'] as int?) ?? 0,
+          ),
+        )
+        .toList();
+  }
+
+  /// 待确认的题里，AI 判过、家长又手动改过对错的那些。
+  ///
+  /// 用来看 AI 的可靠程度：改动比例高就说明该复核它的判断。
+  Future<int> manuallyOverriddenCount(int profileId) async {
+    final rows = await _db.rawQuery(
+      '''
+      SELECT COUNT(*) AS c
+      FROM draft_questions d
+      JOIN intake_batches b ON b.id = d.batch_id
+      WHERE b.profile_id = ? AND d.grade_source = 'manual'
+      ''',
+      [profileId],
+    );
+    return (rows.first['c'] as int?) ?? 0;
   }
 
   /// 存下 AI 重绘的结果。
@@ -434,6 +499,8 @@ class OctopusDatabase {
     String? gradeResult,
     String? correctAnswer,
     String? gradeSource,
+    String? gradeReason,
+    String? knowledgeTags,
   }) async {
     await _db.update(
       'draft_questions',
@@ -445,6 +512,8 @@ class OctopusDatabase {
         'grade_result': ?gradeResult,
         'correct_answer': ?correctAnswer,
         'grade_source': ?gradeSource,
+        'grade_reason': ?gradeReason,
+        'knowledge_tags': ?knowledgeTags,
       },
       where: 'id = ?',
       whereArgs: [draftId],
@@ -455,17 +524,24 @@ class OctopusDatabase {
   /// 写入批改结果。
   ///
   /// `result` 传 'correct' / 'wrong'；传 null 表示撤销判断，回到未批改状态。
+  /// 学科和知识点一起存下来——模型是同一次调用给的，分两次写没有意义。
   Future<void> setDraftGrade(
     int draftId, {
     required String? result,
     String? correctAnswer,
     required String source,
+    String? reason,
+    String? subject,
+    String? knowledgeTags,
   }) =>
       updateDraft(
         draftId,
         gradeResult: result,
         correctAnswer: correctAnswer,
         gradeSource: source,
+        gradeReason: reason,
+        subject: subject,
+        knowledgeTags: knowledgeTags,
       );
 
   Future<void> setBatchStatus(int batchId, String status) async {

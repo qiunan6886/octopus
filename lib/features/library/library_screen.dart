@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../app/theme/octopus_theme.dart';
 import '../../data/database.dart';
 import '../../providers/app_providers.dart';
+import '../stats/stats_screen.dart';
 import 'question_actions.dart';
 
 /// 掌握状态的筛选项。
@@ -265,6 +266,16 @@ class _LibraryHeader extends StatelessWidget {
                 ],
               ),
               const Spacer(),
+              // 批改统计。放在这里而不是底部导航：它是回顾性的，
+              // 不该占一个每天都要点的位置。
+              IconButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const StatsScreen()),
+                ),
+                icon: const Icon(Icons.insights_outlined, size: 20),
+                tooltip: '批改统计',
+                color: OctopusColors.textSecondary,
+              ),
               if (total > 0)
                 TextButton.icon(
                   onPressed: onStartSelection,

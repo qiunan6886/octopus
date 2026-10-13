@@ -9,6 +9,8 @@ class GradeOutcome {
     required this.isCorrect,
     this.correctAnswer,
     this.reason,
+    this.subject,
+    this.knowledgePoints = const [],
   });
 
   final bool isCorrect;
@@ -16,10 +18,25 @@ class GradeOutcome {
   /// 正确答案。做错的题尤其需要——孩子重做时可以直接对照。
   final String? correctAnswer;
 
-  /// 模型给出的简短理由，展示在确认页帮助家长复核。
+  /// 模型给出的判断依据。
+  ///
+  /// 这个字段存在的意义是**让家长能核对 AI 判得对不对**。只给一个「错」字，
+  /// 家长没法判断是孩子错了还是模型看错了。
   final String? reason;
 
+  /// 学科，如「数学」。批改时模型已经看过题目了，顺手识别出来。
+  ///
+  /// 有了它错题库才能按科目筛选，也才谈得上按科目统计正确率。
+  final String? subject;
+
+  /// 知识点，如「两位数乘法」「进位」。
+  final List<String> knowledgePoints;
+
   String get gradeResult => isCorrect ? 'correct' : 'wrong';
+
+  /// 知识点拼成一行存库。
+  String? get knowledgeTags =>
+      knowledgePoints.isEmpty ? null : knowledgePoints.join('、');
 }
 
 /// 批改失败。保留这个名字是因为调用方和测试都在用它；实现和 [DeepSeekException]
@@ -88,12 +105,36 @@ class DeepSeekGrader {
       return text.isEmpty ? null : text;
     }
 
+    // 知识点可能是数组，也可能被写成顿号分隔的字符串，两种都收。
+    final rawPoints =
+        decoded['knowledgePoints'] ??
+        decoded['knowledge_points'] ??
+        decoded['knowledgeTags'];
+    final points = <String>[];
+    if (rawPoints is List) {
+      for (final item in rawPoints) {
+        final text = clean(item);
+        if (text != null) points.add(text);
+      }
+    } else {
+      final text = clean(rawPoints);
+      if (text != null) {
+        points.addAll(
+          text.split(RegExp(r'[、,，;；]')).map((s) => s.trim()).where(
+            (s) => s.isNotEmpty,
+          ),
+        );
+      }
+    }
+
     return GradeOutcome(
       isCorrect: isCorrect,
       correctAnswer: clean(
         decoded['correctAnswer'] ?? decoded['correct_answer'],
       ),
       reason: clean(decoded['reason']),
+      subject: clean(decoded['subject']),
+      knowledgePoints: points,
     );
   }
 
@@ -112,12 +153,15 @@ class DeepSeekGrader {
 
 学生情况：$gradeText。$subjectText
 
-请判断学生这道题**做对了还是做错了**，并按下面的 JSON 格式回答，不要输出别的内容：
+请完成三件事：判断对错、给出正确答案、识别这道题的学科和知识点。
+按下面的 JSON 格式回答，不要输出别的内容：
 
 {
   "correct": true 或 false,
   "correctAnswer": "这道题的正确答案",
-  "reason": "一句话说明判断依据"
+  "reason": "一句话说明判断依据",
+  "subject": "数学",
+  "knowledgePoints": ["知识点1", "知识点2"]
 }
 
 判断要求：
@@ -125,7 +169,12 @@ class DeepSeekGrader {
 2. 如果学生没有作答、或者答案被涂改得无法辨认，correct 填 false，并在 reason 里说明。
 3. correctAnswer 要给出**这道题本身**的正确答案（不是学生的答案）。
    如果题目有多个空，把每个空的答案都写出来。
-4. 只判断对错，不要重新出题，不要评价学生。
+4. **reason 要说清判断依据**，例如「竖式第二行忘了进位」而不是只写「算错了」。
+   家长要靠这句话核对你的判断，所以它必须具体。
+5. subject 从这几个里选：语文、数学、英语、科学、道德与法治、其他。
+6. knowledgePoints 给 1–3 个，具体到能拿来出同类题，
+   例如「两位数乘一位数·进位」而不是「乘法」。
+7. 只判断对错和分类，不要重新出题，不要评价学生。
 ''';
   }
 

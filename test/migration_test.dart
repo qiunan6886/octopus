@@ -165,6 +165,9 @@ void main() {
     expect(question.redrawnSvg, isNull);
     expect(question.variantOfQuestionId, isNull);
 
+    // v4 的字段：老题没有批改理由。
+    expect(question.gradeReason, isNull);
+
     // 重绘结果可以写入，而且**默认不选中**——必须先让用户和原图对照。
     const svg = '<svg viewBox="0 0 10 10"><rect/></svg>';
     await db.setRedrawn(profileId, questionId, svg: svg);
@@ -189,8 +192,7 @@ void main() {
     expect(variant.variantOfQuestionId, questionId);
   });
 
-  test('v2 的库也能升到 v3', () async {
-    final dir = await databaseFactory.getDatabasesPath();
+  test('同一个库文件可以反复打开，数据不丢', () async {    final dir = await databaseFactory.getDatabasesPath();
     final path = '$dir/octopus_migration_v2_test.sqlite';
     await databaseFactory.deleteDatabase(path);
 
@@ -241,5 +243,23 @@ void main() {
       (await reopened.questionsFor(profileId)).single.usesAiRedrawnFigure,
       isTrue,
     );
+
+    // v4：批改的理由和知识点。
+    final draftId = (await reopened.draftsFor(batchId)).single.id;
+    await reopened.setDraftGrade(
+      draftId,
+      result: 'wrong',
+      source: 'ai',
+      reason: '漏了进位',
+      subject: '数学',
+      knowledgeTags: '两位数乘法',
+    );
+    final graded = (await reopened.draftsFor(batchId)).single;
+    expect(graded.gradeReason, '漏了进位');
+    expect(graded.knowledgeTags, '两位数乘法');
+
+    final stats = await reopened.gradingStats(profileId);
+    expect(stats.single.subject, '数学');
+    expect(stats.single.wrong, 1);
   });
 }
