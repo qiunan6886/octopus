@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'deepseek_client.dart';
@@ -224,10 +225,20 @@ class DeepSeekPageAnalyzer {
 
 关于 box 坐标：
 - 用 **0 到 1000 的相对坐标**，不是像素。(0,0) 是图片左上角，(1000,1000) 是右下角。
-- box 要**紧紧包住这一道题**：从题号开始，到这道题最后一个字结束。
 - **不要把两道题放进同一个 box**，也不要一道题拆成两个 box。
 - 学生写在题目旁边或下面的解答、算式、涂改，属于这道题，要包进去。
 - 相邻两道题的 box 不要重叠。
+
+关于 box 的左右边界——**这一点很重要，请特别注意**：
+- 试卷的版面是**分栏**的，同一栏里的题目**上下对齐**：左边距一样，右边距也一样。
+- 所以**同一栏里所有题目的 box，左边 x0 应当几乎相同，右边 x1 也应当几乎相同**。
+- 把 box 画到**这一栏的宽度**，不要只框到文字结束的地方。文字短的那一题，
+  box 的右边也要和上下相邻的题目对齐，把右边留白一起包进来。
+- 量一下：假设一栏从 x0=100 到 x1=900，那么这一栏里每一道题的 box 都应该是
+  从 100 到 900，不管这题的文字只占左边一半还是写满整行。
+- 只有确实**缩进**的题目（比如大题下面的小问「（1）（2）」）才允许左边距不同，
+  而且同一层级的小问之间仍然要互相对齐。
+- 如果整页只有一栏，那就所有题目共用同一个左右边距。
 
 关于切题：
 - 题号（如「1.」「（2）」「一、」「第3题」）是题目边界，**每见到一个新题号就开一个新的 box**。
@@ -257,6 +268,56 @@ class DeepSeekPageAnalyzer {
     '五',
     '六',
   ].elementAt(n.clamp(0, 6));
+}
+
+/// 用「试卷题目上下对齐」这条版面规律把框拉齐。
+///
+/// 同一栏里的题目共用一个左边距和一个右边距——这是试卷排版的基本特点。所以所有
+/// 框的左右边缘本来就**应当几乎相同**，不同的那些多半是模型报歪了。
+///
+/// 于是可以用**中位数**当基准：偏离小的拉回来，偏离大的不动。
+///
+/// **为什么偏差大的不动**：真正缩进的题目是存在的（大题下面的「（1）（2）」小问），
+/// 强行拉齐会把它们的框盖到别的题上。这条规则只该用来**去噪声，不该覆盖信号**。
+///
+/// 用中位数而不是平均值：个别歪得离谱的框不该把基准带偏。
+List<PageQuestion> alignBoxColumns(
+  List<PageQuestion> questions, {
+  double tolerance = 0.12,
+}) {
+  if (questions.length < 3) return questions;
+
+  final lefts = questions.map((q) => q.box.left).toList()..sort();
+  final rights = questions.map((q) => q.box.right).toList()..sort();
+  final medianLeft = _median(lefts);
+  final medianRight = _median(rights);
+
+  return [
+    for (final question in questions)
+      question.copyWith(
+        box: Rect.fromLTRB(
+          (question.box.left - medianLeft).abs() <= tolerance
+              ? medianLeft
+              : question.box.left,
+          question.box.top,
+          (question.box.right - medianRight).abs() <= tolerance
+              ? medianRight
+              : question.box.right,
+          question.box.bottom,
+        ),
+      ),
+  ];
+}
+
+/// 中位数。
+///
+/// 偶数个样本时取**中间两个的平均**，而不是直接取上中位——后者会被单个样本
+/// 带偏（例如 [0.10, 0.10, 0.11, 0.95] 取上中位会得到 0.11）。
+double _median(List<double> sorted) {
+  if (sorted.isEmpty) return 0;
+  final mid = sorted.length ~/ 2;
+  if (sorted.length.isOdd) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 /// 用 ML Kit 的文字行把模型给的边界「吸附」到真实文字上。
@@ -336,9 +397,14 @@ List<PageQuestion> snapToLines({
     result.add(
       questions[q].copyWith(
         box: Rect.fromLTRB(
-          (union.left - grow).clamp(0.0, 1.0),
+          // 横向：取文字行和模型框的**并集**，也就是只扩不缩。
+          //
+          // 模型是被明确要求「把框画到这一栏的宽度」的（试卷题目上下对齐，
+          // 共用一个右边距）。如果这里按文字行的宽度收紧，文字短的那道题就会
+          // 被缩成一条——恰好把模型做对的事情毁掉。宁可多带一点右边留白。
+          (math.min(union.left, questions[q].box.left) - grow).clamp(0.0, 1.0),
           (union.top - grow).clamp(0.0, 1.0),
-          (union.right + grow).clamp(0.0, 1.0),
+          (math.max(union.right, questions[q].box.right) + grow).clamp(0.0, 1.0),
           (union.bottom + grow).clamp(0.0, 1.0),
         ),
       ),

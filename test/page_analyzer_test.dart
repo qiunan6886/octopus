@@ -171,6 +171,73 @@ void main() {
     });
   });
 
+  group('按栏宽拉齐', () {
+    // 试卷同一栏里的题目共用一个左边距和右边距。用中位数当基准把歪的拉回来。
+    PageQuestion q(double l, double r, String text) => PageQuestion(
+      box: Rect.fromLTRB(l, 0.1, r, 0.2),
+      text: text,
+      isCorrect: true,
+    );
+
+    test('偏离小的框被拉齐到中位数', () {
+      final aligned = alignBoxColumns([
+        q(0.10, 0.90, 'a'),
+        q(0.11, 0.89, 'b'), // 差一点点，应当拉齐
+        q(0.10, 0.91, 'c'),
+      ]);
+      expect(aligned.map((e) => e.box.left).toSet(), {0.10});
+      expect(aligned.map((e) => e.box.right).toSet(), {0.90});
+    });
+
+    test('真正缩进的题目不动', () {
+      // 大题下面的小问「（1）（2）」确实左缩进，强行拉齐会盖到别的题上。
+      final aligned = alignBoxColumns([
+        q(0.10, 0.90, '大题'),
+        q(0.10, 0.90, '题二'),
+        q(0.10, 0.90, '题三'),
+        q(0.45, 0.90, '缩进的小问'),
+      ]);
+      expect(aligned[3].box.left, 0.45, reason: '缩进是真实的版面信息，不能抹掉');
+      expect(aligned[0].box.left, 0.10);
+    });
+
+    test('个别歪得离谱的框不会把基准带偏', () {
+      // 用中位数而不是平均值的理由。平均数会被那个 0.95 拉走，
+      // 结果所有正常的框都被拽偏。
+      final aligned = alignBoxColumns([
+        q(0.10, 0.90, 'a'),
+        q(0.10, 0.90, 'b'),
+        q(0.11, 0.90, 'c'),
+        q(0.95, 0.99, '模型报歪了'),
+      ]);
+      // 前三个的左边应当完全一致（具体值是多少不重要，一致才重要）。
+      expect(aligned[0].box.left, aligned[1].box.left);
+      expect(aligned[1].box.left, aligned[2].box.left);
+      expect(
+        aligned[0].box.left,
+        lessThan(0.2),
+        reason: '基准不能被那个 0.95 带跑',
+      );
+      expect(aligned[3].box.left, 0.95, reason: '偏离太大，保留原样交给吸附去处理');
+    });
+
+    test('题目太少时不拉齐，避免拿一两个样本瞎猜', () {
+      final aligned = alignBoxColumns([q(0.10, 0.9, 'a'), q(0.30, 0.5, 'b')]);
+      expect(aligned[0].box.left, 0.10);
+      expect(aligned[1].box.left, 0.30);
+    });
+
+    test('只动左右边缘，上下不动', () {
+      final aligned = alignBoxColumns([
+        q(0.10, 0.90, 'a'),
+        q(0.11, 0.90, 'b'),
+        q(0.10, 0.90, 'c'),
+      ]);
+      expect(aligned[1].box.top, 0.1);
+      expect(aligned[1].box.bottom, 0.2);
+    });
+  });
+
   group('吸附到文字行', () {
     const page = Size(1000, 2000);
 

@@ -163,10 +163,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
                           for (var i = 0; i < _items.length; i++)
                             _BoxOverlay(
                               item: _items[i],
-                              index: i,
                               imageRect: imageRect,
                               onTap: () => _toggle(i),
                               onLongPress: () => _openDetail(i),
+                            ),
+                          // 角标单独画，放在框**外面**的上方。
+                          //
+                          // 原来画在框内的右上角，正好压住题干的末尾——而那一行
+                          // 恰恰是家长要核对的内容。挪出去就不挡字了。
+                          for (var i = 0; i < _items.length; i++)
+                            _BadgeOverlay(
+                              item: _items[i],
+                              index: i,
+                              imageRect: imageRect,
                             ),
                         ],
                       );
@@ -268,10 +277,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         if (!mounted) return;
 
         // 模型报的坐标是猜的，用 ML Kit 的真实文字行把它对齐，免得切掉半行字。
-        final snapped = snapToLines(
-          questions: analysis.questions,
-          lines: ocr.lines,
-          pageSize: size,
+        // 再用「同一栏题目上下对齐」这条版面规律把左右边缘拉齐。
+        final snapped = alignBoxColumns(
+          snapToLines(
+            questions: analysis.questions,
+            lines: ocr.lines,
+            pageSize: size,
+          ),
         );
 
         setState(() {
@@ -438,30 +450,23 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 // 画在照片上的框
 // ---------------------------------------------------------------------------
 
-/// 一道题的框 + 角上的对错标记。整个框都可以点。
+/// 一道题的框。整个框都可以点。
 class _BoxOverlay extends StatelessWidget {
   const _BoxOverlay({
     required this.item,
-    required this.index,
     required this.imageRect,
     required this.onTap,
     required this.onLongPress,
   });
 
   final ScanItem item;
-  final int index;
   final Rect imageRect;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
-    final rect = Rect.fromLTWH(
-      imageRect.left + item.box.left * imageRect.width,
-      imageRect.top + item.box.top * imageRect.height,
-      item.box.width * imageRect.width,
-      item.box.height * imageRect.height,
-    );
+    final rect = _pixelRect(item, imageRect);
 
     // 颜色按结果分：对绿、错红、没批上灰。选中再加一层描边。
     final color = item.grade == null
@@ -490,18 +495,48 @@ class _BoxOverlay extends StatelessWidget {
                 ? color.withValues(alpha: 0.10)
                 : OctopusColors.background.withValues(alpha: 0.45),
           ),
-          child: Align(
-            alignment: Alignment.topRight,
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: _Badge(item: item, index: index),
-            ),
-          ),
         ),
       ),
     );
   }
 }
+
+/// 角标，画在框外上方。
+class _BadgeOverlay extends StatelessWidget {
+  const _BadgeOverlay({
+    required this.item,
+    required this.index,
+    required this.imageRect,
+  });
+
+  final ScanItem item;
+  final int index;
+  final Rect imageRect;
+
+  @override
+  Widget build(BuildContext context) {
+    final rect = _pixelRect(item, imageRect);
+    const badgeHeight = 24.0;
+    // 框贴到图片顶端时没有地方放，退回框内，总比看不见强。
+    final above = rect.top - badgeHeight >= 0;
+    final top = above ? rect.top - badgeHeight : rect.top + 2;
+
+    return Positioned(
+      top: top,
+      // 右对齐到框的右边缘，但不越出图片。
+      left: (rect.right - 60).clamp(0.0, imageRect.right - 60),
+      child: IgnorePointer(child: _Badge(item: item, index: index)),
+    );
+  }
+}
+
+/// 归一化的框换算成图片上的像素矩形。
+Rect _pixelRect(ScanItem item, Rect imageRect) => Rect.fromLTWH(
+  imageRect.left + item.box.left * imageRect.width,
+  imageRect.top + item.box.top * imageRect.height,
+  item.box.width * imageRect.width,
+  item.box.height * imageRect.height,
+);
 
 class _Badge extends StatelessWidget {
   const _Badge({required this.item, required this.index});
