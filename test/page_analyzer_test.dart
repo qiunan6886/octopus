@@ -276,8 +276,96 @@ void main() {
       expect(box.bottom, lessThanOrEqualTo(1.0));
     });
 
-    test('批改信息在吸附后保留', () {
+    test('模型框短了一点，最后一行仍然被包含进来', () {
+      // 这是「按中心点判断」会出错的地方：最后一行的中心刚好落到框外一丝丝，
+      // 于是被丢掉，这道题的尾巴就被切了。按重叠比例就容忍了这个偏差。
+      const modelBox = Rect.fromLTRB(0.0, 0.10, 1.0, 0.175);
       final snapped = snapToLines(
+        questions: [
+          const PageQuestion(box: modelBox, text: '题', isCorrect: true),
+        ],
+        lines: [
+          line(200, 300), // 0.100..0.150，完全在内
+          line(310, 400), // 0.155..0.200，中心 0.1775 在框外，但 44% 重叠
+        ],
+        pageSize: page,
+      );
+      expect(
+        snapped.single.box.bottom,
+        greaterThan(0.19),
+        reason: '第二行必须被算进来，否则这道题的最后一问会被切掉',
+      );
+    });
+
+    test('一行落在两个框里时，归给重叠更多的那个', () {
+      // 模型被要求「相邻框不要重叠」，但它做不到。直接两边都取并集的话，
+      // 这个行会出现在两道题里，打印出来是重复的。
+      final snapped = snapToLines(
+        questions: [
+          const PageQuestion(
+            box: Rect.fromLTRB(0.0, 0.10, 1.0, 0.16),
+            text: '上题',
+            isCorrect: true,
+          ),
+          const PageQuestion(
+            box: Rect.fromLTRB(0.0, 0.155, 1.0, 0.30),
+            text: '下题',
+            isCorrect: true,
+          ),
+        ],
+        lines: [line(320, 400)], // 0.16..0.20，绝大部分落在第二个框里
+        pageSize: page,
+      );
+      // 第一个框不该认领这一行——它本该在框外。
+      expect(snapped[0].box.bottom, lessThan(0.17));
+      expect(snapped[1].box.bottom, greaterThan(0.19));
+    });
+
+    test('相邻两题的框不会重叠', () {
+      // 两题的行挨得很近，加上留白之后并集就叠上了。叠上意味着同一块内容
+      // 出现在两道题里。
+      final snapped = snapToLines(
+        questions: [
+          const PageQuestion(
+            box: Rect.fromLTRB(0.0, 0.10, 1.0, 0.20),
+            text: '上题',
+            isCorrect: true,
+          ),
+          const PageQuestion(
+            box: Rect.fromLTRB(0.0, 0.21, 1.0, 0.30),
+            text: '下题',
+            isCorrect: false,
+          ),
+        ],
+        lines: [
+          line(200, 300), // 0.100..0.150
+          line(310, 400), // 0.155..0.200  ← 上题最后一行
+          line(410, 500), // 0.205..0.250  ← 下题第一行，离得很近
+        ],
+        pageSize: page,
+      );
+
+      expect(
+        snapped[0].box.bottom,
+        lessThanOrEqualTo(snapped[1].box.top),
+        reason: '切开之后不应当再有重叠',
+      );
+      // 切开的同时不能把内容切掉：
+      //   上题最后一行是 0.155..0.200 → 上框下缘必须盖住 0.200
+      //   下题第一行是 0.205..0.250 → 下框上缘必须在 0.205 之上
+      expect(
+        snapped[0].box.bottom,
+        greaterThanOrEqualTo(0.20),
+        reason: '不能为了分开而切掉上题的最后一行',
+      );
+      expect(
+        snapped[1].box.top,
+        lessThanOrEqualTo(0.205),
+        reason: '不能为了分开而切掉下题的第一行',
+      );
+    });
+
+    test('批改信息在吸附后保留', () {      final snapped = snapToLines(
         questions: [
           const PageQuestion(
             box: Rect.fromLTRB(0.0, 0.1, 1.0, 0.3),

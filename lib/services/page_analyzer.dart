@@ -261,59 +261,144 @@ class DeepSeekPageAnalyzer {
 
 /// 用 ML Kit 的文字行把模型给的边界「吸附」到真实文字上。
 ///
-/// **为什么需要这一步**：模型报的坐标是猜的，经常差几十个像素，直接用会把字切
-/// 掉半行或者多带一块空白。而 ML Kit 给的是**真实的文字行位置**。
+/// **为什么需要这一步**：模型报的坐标是猜的，经常差几十个像素。而 ML Kit 给的
+/// 是**真实的文字行位置**。
 ///
-/// 做法：把中心落在模型框内的文字行取并集，用这个并集当最终边界。这样
-/// **「哪几行属于这道题」由模型判断（懂内容），「边界画在哪」由文字位置决定
-/// （不会切字）**。
+/// 混合的分工是：**「哪几行属于这道题」由模型判断（懂内容），「边界画在哪」由
+/// 文字位置决定（不会切字）**。
 ///
-/// 一个文字行都没落在框里时保留模型原框——总比丢掉这道题强。
+/// 两个关键细节：
+///
+/// 1. **归属按重叠比例判断，不是「中心是否在框内」**。模型给的框经常短一点点，
+///    这时最后一行只有一部分落在框里——按中心判断会把这一行丢掉，于是**这道题
+///    的尾巴被切掉**。按重叠比例就容忍了这种偏差。
+///
+/// 2. **一行被两个框同时认领时，给重叠更多的那一个**。模型虽然被要求「相邻框
+///    不要重叠」，但它做不到，直接取并集会让两道题都多出一块。
+///
+/// 一个文字行都没落进框里时保留模型原框——宁可位置不完美，也不能把题丢掉。
 List<PageQuestion> snapToLines({
   required List<PageQuestion> questions,
   required List<PageLine> lines,
   required Size pageSize,
   double grow = 0.012,
+  double minOverlap = 0.4,
 }) {
   if (lines.isEmpty || pageSize.width <= 0 || pageSize.height <= 0) {
     return questions;
   }
 
-  return [
-    for (final question in questions)
-      question.copyWith(box: _snapOne(question.box, lines, pageSize, grow)),
+  // 归一化一次，后面反复用。
+  final normalized = [
+    for (final line in lines)
+      _NormLine(
+        box: Rect.fromLTRB(
+          line.box.left / pageSize.width,
+          line.box.top / pageSize.height,
+          line.box.right / pageSize.width,
+          line.box.bottom / pageSize.height,
+        ),
+      ),
   ];
-}
 
-Rect _snapOne(Rect box, List<PageLine> lines, Size pageSize, double grow) {
-  var union = const Rect.fromLTRB(1, 1, 0, 0);
-  var found = false;
+  // 每行选出重叠比例最高的那个框。用「先算所有权、再分配」而不是边扫边塞，
+  // 才能处理一行同时落在两个框里的情况。
+  final owner = List<int>.filled(normalized.length, -1);
+  final bestRatio = List<double>.filled(normalized.length, 0);
 
-  for (final line in lines) {
-    final center = Offset(
-      line.box.center.dx / pageSize.width,
-      line.box.center.dy / pageSize.height,
-    );
-    // 判断用中心点：一行横跨两个框时，归给中心所在的那个才符合直觉。
-    if (!box.contains(center)) continue;
-
-    final lineRect = Rect.fromLTRB(
-      line.box.left / pageSize.width,
-      line.box.top / pageSize.height,
-      line.box.right / pageSize.width,
-      line.box.bottom / pageSize.height,
-    );
-    union = found ? union.expandToInclude(lineRect) : lineRect;
-    found = true;
+  for (var q = 0; q < questions.length; q++) {
+    for (var i = 0; i < normalized.length; i++) {
+      final ratio = _overlapRatio(normalized[i].box, questions[q].box);
+      if (ratio >= minOverlap && ratio > bestRatio[i]) {
+        bestRatio[i] = ratio;
+        owner[i] = q;
+      }
+    }
   }
 
-  if (!found) return box;
+  final result = <PageQuestion>[];
+  for (var q = 0; q < questions.length; q++) {
+    var union = const Rect.fromLTRB(1, 1, 0, 0);
+    var found = false;
+    for (var i = 0; i < normalized.length; i++) {
+      if (owner[i] != q) continue;
+      union = found ? union.expandToInclude(normalized[i].box) : normalized[i].box;
+      found = true;
+    }
 
-  // 纵向留一点余量，免得把字的上下缘切掉；横向也稍微放宽一点。
-  return Rect.fromLTRB(
-    (union.left - grow).clamp(0.0, 1.0),
-    (union.top - grow).clamp(0.0, 1.0),
-    (union.right + grow).clamp(0.0, 1.0),
-    (union.bottom + grow).clamp(0.0, 1.0),
-  );
+    if (!found) {
+      // 没有行认领这个框：保留模型原框。可能是一张纯图形的题，
+      // 也可能模型框错了，但丢掉一定更糟。
+      result.add(questions[q]);
+      continue;
+    }
+
+    result.add(
+      questions[q].copyWith(
+        box: Rect.fromLTRB(
+          (union.left - grow).clamp(0.0, 1.0),
+          (union.top - grow).clamp(0.0, 1.0),
+          (union.right + grow).clamp(0.0, 1.0),
+          (union.bottom + grow).clamp(0.0, 1.0),
+        ),
+      ),
+    );
+  }
+
+  return _separateOverlaps(result);
+}
+
+class _NormLine {
+  const _NormLine({required this.box});
+
+  final Rect box;
+}
+
+/// [inner] 有多大比例落在 [outer] 里，按面积算。
+///
+/// 用面积而不是高度，是因为横向也可能只落进来一半（模型框窄了）。
+double _overlapRatio(Rect inner, Rect outer) {
+  final intersection = inner.intersect(outer);
+  if (intersection.width <= 0 || intersection.height <= 0) return 0;
+  final area = inner.width * inner.height;
+  if (area <= 0) return 0;
+  return (intersection.width * intersection.height) / area;
+}
+
+/// 让相邻的框不再重叠。
+///
+/// 模型被要求过「相邻 box 不要重叠」，但它做不到。重叠的后果是同一个区域出现在
+/// 两道题里，打印出来会重复。
+///
+/// 处理方式是**在两者之间的空白正中切一刀**，切的落点取「上一题本来的下缘」和
+/// 「下一题本来的上缘」的中点。
+///
+/// **不要额外留缝**。一开始我在切口两侧各留了 0.008 的间隙，结果下题的框被推进
+/// 它自己第一行里——为了分开而切掉了内容。切在正中就既不重叠也不切字：上一题的
+/// 最后一行在切口上方，下一题的第一行在下方。
+List<PageQuestion> _separateOverlaps(List<PageQuestion> questions) {
+  if (questions.length < 2) return questions;
+
+  // 先按纵坐标排，保证「上一题 / 下一题」的关系成立。
+  final sorted = [...questions]..sort((a, b) => a.box.top.compareTo(b.box.top));
+  final out = [...sorted];
+
+  for (var i = 0; i < out.length - 1; i++) {
+    final current = out[i].box;
+    final next = out[i + 1].box;
+    if (current.bottom <= next.top) continue; // 本来就不重叠
+
+    // 在上一题的下缘和下一题的上缘之间取中点。不能取两者中心的中间——
+    // 那会把题目的内容切掉。
+    final cut = (current.bottom + next.top) / 2;
+
+    out[i] = out[i].copyWith(
+      box: Rect.fromLTRB(current.left, current.top, current.right, cut),
+    );
+    out[i + 1] = out[i + 1].copyWith(
+      box: Rect.fromLTRB(next.left, cut, next.right, next.bottom),
+    );
+  }
+
+  return out;
 }
