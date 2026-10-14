@@ -21,6 +21,7 @@ class SettingsScreen extends ConsumerWidget {
     final keepCorrect = ref.watch(gradingKeepCorrectProvider);
     final aiGrading = ref.watch(aiGradingProvider);
     final autoOcr = ref.watch(autoOcrProvider);
+    final intakeMode = ref.watch(intakeModeProvider);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
@@ -122,6 +123,29 @@ class SettingsScreen extends ConsumerWidget {
             '还没配置 API Key，云端识别暂时不可用——会自动退回本地识别。',
             warn: true,
           ),
+
+        // -- 录入 -------------------------------------------------------------
+        const _SectionLabel('录入方式'),
+        _Card(
+          children: [
+            _ChoiceRow<IntakeMode>(
+              title: '拍完之后',
+              value: intakeMode,
+              options: const {
+                IntakeMode.manual: '手动框选',
+                IntakeMode.ai: 'AI 批改',
+              },
+              onChanged: (v) => ref.read(intakeModeProvider.notifier).set(v),
+            ),
+          ],
+        ),
+        _SectionHint(
+          intakeMode == IntakeMode.ai
+              ? '拍完整页显示出来，自动切题并逐题批改，把结果画在照片上——'
+                    '绿勾是做对的，红叉是做错的。点框可以选要不要收进题库。'
+                    '需要配 DeepSeek API Key；没配的话只自动切题、不批改。'
+              : '拍完自己拖框切题，完全掌控，也不花 AI 的钱。',
+        ),
 
         // -- 批改 -------------------------------------------------------------
         const _SectionLabel('批改'),

@@ -12,6 +12,7 @@ import '../../providers/app_providers.dart';
 import '../../services/ocr_service.dart';
 import '../../services/question_splitter.dart';
 import '../review/review_screen.dart';
+import 'scan_screen.dart';
 
 /// 录入：拍一张（或选一张）试卷，然后框选出错题。
 ///
@@ -121,9 +122,13 @@ class _IntakeScreenState extends ConsumerState<IntakeScreen> {
       ref.read(activeBatchProvider.notifier).set(batchId);
 
       if (!mounted) return;
+      // 拍完之后走哪条路，由「录入模式」决定。
+      final mode = ref.read(intakeModeProvider);
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => CropScreen(batchId: batchId, imagePath: saved),
+          builder: (_) => mode == IntakeMode.ai
+              ? ScanScreen(batchId: batchId, imagePath: saved)
+              : CropScreen(batchId: batchId, imagePath: saved),
         ),
       );
     } finally {

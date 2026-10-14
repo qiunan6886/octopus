@@ -189,6 +189,46 @@ void main() {
     expect(regions.first.box.top * page.height, lessThan(100));
   });
 
+  group('把文字行归到框里', () {
+    // AI 录入模式要用它拼出每道题的文字：切题是按块切的，OCR 是按行给的。
+    List<String> inRegion(Rect region) => linesInRegion(
+      lines: [
+        line('第一题：12 + 5 =', 100), // 中心 y≈120 → 0.086
+        line('第二题：9 × 3 =', 400), // 中心 y≈420 → 0.30
+        line('第三题：7 - 4 =', 900), // 中心 y≈920 → 0.657
+      ],
+      region: region,
+      pageSize: page,
+    );
+
+    test('只取中心落在框内的行', () {
+      expect(inRegion(const Rect.fromLTRB(0, 0, 1, 0.2)), ['第一题：12 + 5 =']);
+      expect(inRegion(const Rect.fromLTRB(0, 0.25, 1, 0.45)), ['第二题：9 × 3 =']);
+    });
+
+    test('框覆盖多行时全部取出，顺序不乱', () {
+      final all = inRegion(const Rect.fromLTRB(0, 0, 1, 1));
+      expect(all.length, 3);
+      expect(all.first, '第一题：12 + 5 =');
+      expect(all.last, '第三题：7 - 4 =');
+    });
+
+    test('没有行落在框内时返回空，而不是抛异常', () {
+      expect(inRegion(const Rect.fromLTRB(0, 0.5, 0.01, 0.55)), isEmpty);
+    });
+
+    test('页面尺寸非法时返回空，不做除零', () {
+      expect(
+        linesInRegion(
+          lines: [line('题', 100)],
+          region: const Rect.fromLTRB(0, 0, 1, 1),
+          pageSize: Size.zero,
+        ),
+        isEmpty,
+      );
+    });
+  });
+
   test('贴边的内容不会因为加 padding 而越界', () {
     final regions = splitIntoQuestions(
       lines: [

@@ -149,6 +149,43 @@ enum OcrEngineKind { local, cloud }
 
 const _ocrKey = 'octopus.ocrEngine';
 
+// ---------------------------------------------------------------------------
+// 录入模式
+// ---------------------------------------------------------------------------
+
+/// 拍完照片之后怎么处理。
+///
+/// * [manual] —— 手动框选。用户自己拖框，完全掌控，不花 AI 的钱。
+/// * [ai] —— 拍完整页显示出来，自动切题 + 逐题批改，把结果画在照片上。
+///
+/// 两种都保留：有的家长想一道一道仔细挑，有的想拍完就让 AI 全办完。
+enum IntakeMode { manual, ai }
+
+const _intakeModeKey = 'octopus.intakeMode';
+
+final intakeModeProvider = NotifierProvider<IntakeModeNotifier, IntakeMode>(
+  IntakeModeNotifier.new,
+);
+
+class IntakeModeNotifier extends Notifier<IntakeMode> {
+  @override
+  IntakeMode build() {
+    final raw = ref.watch(sharedPreferencesProvider).getString(_intakeModeKey);
+    return IntakeMode.values.firstWhere(
+      (m) => m.name == raw,
+      // 默认手动：不花 AI 的钱，也不需要配 Key，第一次用就能跑通。
+      orElse: () => IntakeMode.manual,
+    );
+  }
+
+  Future<void> set(IntakeMode mode) async {
+    state = mode;
+    await ref
+        .read(sharedPreferencesProvider)
+        .setString(_intakeModeKey, mode.name);
+  }
+}
+
 final ocrEngineProvider = NotifierProvider<OcrEngineNotifier, OcrEngineKind>(
   OcrEngineNotifier.new,
 );

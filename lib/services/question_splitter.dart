@@ -36,6 +36,34 @@ class QuestionRegion {
       '${marker == null ? '' : ', $marker'})';
 }
 
+/// 取出落在 [region] 里的文字行。
+///
+/// [lines] 和 [pageSize] 都是像素坐标；[region] 是归一化坐标。AI 录入模式下用它
+/// 把每道题的文字拼出来——切题是按块切的，文字是按行给的，这里把两者对上，
+/// 省掉一次逐题识别。
+///
+/// 判断用**行的中心点**而不是整行的矩形：一行横跨两个框时，归给中心所在的那个框
+/// 才符合直觉。
+List<String> linesInRegion({
+  required List<PageLine> lines,
+  required Rect region,
+  required Size pageSize,
+}) {
+  if (pageSize.width <= 0 || pageSize.height <= 0) return const [];
+  final result = <String>[];
+  for (final line in lines) {
+    final center = Offset(
+      line.box.center.dx / pageSize.width,
+      line.box.center.dy / pageSize.height,
+    );
+    if (region.contains(center)) {
+      final text = line.text.trim();
+      if (text.isNotEmpty) result.add(text);
+    }
+  }
+  return result;
+}
+
 /// 题号出现在行首的各种写法。
 ///
 /// 覆盖小学作业里最常见的几种：`1.` `1、` `1)` `（1）` `一、`。刻意不匹配
