@@ -11,6 +11,7 @@ import '../../providers/app_providers.dart';
 import '../../services/deepseek_client.dart';
 import '../../services/deepseek_grader.dart';
 import '../../services/ocr_service.dart';
+import '../../services/page_analyzer.dart';
 import '../../services/question_splitter.dart';
 import 'intake_screen.dart' show persistIntakeFileBytes;
 
@@ -64,7 +65,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   ScanPhase _phase = ScanPhase.scanning;
   Size? _imageSize;
   String _status = '正在识别题目…';
-  int _graded = 0;
   int _toGrade = 0;
   String? _fatal;
 
@@ -222,7 +222,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _items.clear();
       _phase = ScanPhase.scanning;
       _status = '正在识别题目…';
-      _graded = 0;
       _toGrade = 0;
       _fatal = null;
     });
@@ -244,13 +243,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         return;
       }
 
-      final regions = splitIntoQuestions(lines: ocr.lines, pageSize: size);
-      if (regions.isEmpty) {
-        _fail('没切出题目。可以换张照片，或用「手动框选」。');
-        return;
-      }
-
-      // 2. 按框裁图。裁完才有东西可以逐题批改。
       final decoded = img.decodeImage(
         File(widget.imagePath).readAsBytesSync(),
       );
@@ -259,99 +251,80 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         return;
       }
 
-      for (var i = 0; i < regions.length; i++) {
-        final region = regions[i];
-        final rect = region.box;
-        final x = (rect.left * decoded.width).round().clamp(
-          0,
-          decoded.width - 1,
-        );
-        final y = (rect.top * decoded.height).round().clamp(
-          0,
-          decoded.height - 1,
-        );
-        final w = (rect.width * decoded.width).round().clamp(
-          1,
-          decoded.width - x,
-        );
-        final h = (rect.height * decoded.height).round().clamp(
-          1,
-          decoded.height - y,
-        );
-
-        final crop = img.copyCrop(decoded, x: x, y: y, width: w, height: h);
-        final path = await persistIntakeFileBytes(
-          img.encodeJpg(crop, quality: 92),
-          'scan_${DateTime.now().microsecondsSinceEpoch}_$i.jpg',
-        );
-
-        final item = ScanItem(box: rect)..cropPath = path;
-        // 框里的文字：OCR 是按行给的，切题是按块给的，这里把两者对上，
-        // 省掉一次逐题识别。
-        item.text = linesInRegion(
-          lines: ocr.lines,
-          region: rect,
-          pageSize: size,
-        ).join('\n');
-
-        setState(() => _items.add(item));
-      }
-
-      // 3. 逐题批改。
       final key = ref.read(deepSeekKeyProvider);
-      final gradingOn =
-          ref.read(gradingEnabledProvider) &&
-          ref.read(aiGradingProvider) &&
-          key.trim().isNotEmpty;
+      final grade = ref.read(currentProfileObjectProvider)?.grade ?? 4;
 
-      if (!gradingOn) {
-        // 没开批改或没配 Key：仍然把题切好了，直接进可点选状态。
-        // 默认全选——用户既然用了这个模式，就是想把这些题收进来。
-        setState(() {
-          for (final item in _items) {
-            item.selected = true;
-          }
-          _phase = ScanPhase.done;
-          _status = '';
-        });
-        return;
-      }
+      if (key.trim().isNotEmpty) {
+        // ---- 主路径：整页交给模型，一次拿到边界和批改 ----
+        //
+        // 之前是「几何算法切题 + 逐题调模型批改」：切题只看行距和行首数字，
+        // 看不懂内容，实测会把两三道题糊成一块、也会把单独一行切成一条。
+        // 改成整页一次交给模型，切题和批改都由它做。
+        setState(() => _status = '正在读整页…');
 
-      setState(() {
-        _phase = ScanPhase.grading;
-        _toGrade = _items.length;
-      });
-
-      final profile = ref.read(currentProfileObjectProvider);
-      final grade = profile?.grade ?? 4;
-      final grader = DeepSeekGrader(apiKey: key);
-
-      for (final item in _items) {
+        final analysis = await DeepSeekPageAnalyzer(
+          apiKey: key,
+        ).analyze(imageBytes: img.encodeJpg(decoded), grade: grade);
         if (!mounted) return;
-        try {
-          final bytes = await readQuestionImage(item.cropPath!);
-          final outcome = await grader.grade(
-            imageBytes: bytes,
-            grade: grade,
-          );
+
+        // 模型报的坐标是猜的，用 ML Kit 的真实文字行把它对齐，免得切掉半行字。
+        final snapped = snapToLines(
+          questions: analysis.questions,
+          lines: ocr.lines,
+          pageSize: size,
+        );
+
+        setState(() {
+          _phase = ScanPhase.grading;
+          _toGrade = snapped.length;
+          _status = '正在裁图 0/$_toGrade…';
+        });
+
+        for (var i = 0; i < snapped.length; i++) {
+          final question = snapped[i];
           if (!mounted) return;
+          final path = await _cropAndSave(decoded, question.box, i);
           setState(() {
-            item.grade = outcome;
-            // 默认只选做错的——错题集的用途就是错题。做对的仍然显示出来，
-            // 用户想留也可以自己点。
-            item.selected = !outcome.isCorrect;
-            _graded++;
-            _status = '正在批改 $_graded/$_toGrade…';
+            _items.add(
+              ScanItem(box: question.box)
+                ..cropPath = path
+                ..text = question.text
+                ..grade = GradeOutcome(
+                  isCorrect: question.isCorrect,
+                  correctAnswer: question.correctAnswer,
+                  reason: question.reason,
+                  subject: question.subject,
+                  knowledgePoints: question.knowledgePoints,
+                )
+                ..selected = !question.isCorrect,
+            );
+            _status = '正在裁图 ${i + 1}/$_toGrade…';
           });
-        } on DeepSeekException catch (error) {
-          if (!mounted) return;
+        }
+      } else {
+        // ---- 回退：没配 Key 时只用几何算法切题，不批改 ----
+        final regions = splitIntoQuestions(lines: ocr.lines, pageSize: size);
+        if (regions.isEmpty) {
+          _fail('没切出题目。可以配好 API Key 让模型来切，或用手动框选。');
+          return;
+        }
+
+        for (var i = 0; i < regions.length; i++) {
+          final rect = regions[i].box;
+          final path = await _cropAndSave(decoded, rect, i);
           setState(() {
-            item.error = error.message;
-            // 批改失败的题默认选上：宁可多收一道让用户自己判断，
-            // 也不要因为 API 出错就把题漏掉。
-            item.selected = true;
-            _graded++;
-            _status = '正在批改 $_graded/$_toGrade…';
+            _items.add(
+              ScanItem(box: rect)
+                ..cropPath = path
+                // 框里的文字：OCR 按行给，切题按块给，这里把两者对上。
+                ..text = linesInRegion(
+                  lines: ocr.lines,
+                  region: rect,
+                  pageSize: size,
+                ).join('\n')
+                // 没批改，默认全选——用户既然用了这个模式就是想收进来。
+                ..selected = true,
+            );
           });
         }
       }
@@ -360,11 +333,37 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       final failed = _items.where((i) => i.error != null).length;
       setState(() {
         _phase = ScanPhase.done;
-        _status = failed == 0 ? '' : '有 $failed 道没批上，已默认选中';
+        _status = _items.isEmpty
+            ? ''
+            : failed == 0
+            ? ''
+            : '有 $failed 道没批上，已默认选中';
       });
     } catch (error) {
-      if (mounted) _fail('处理失败：$error');
+      if (error is DeepSeekException) {
+        _fail('${error.message}。可以配好 Key 重试，或用手动框选。');
+      } else if (mounted) {
+        _fail('处理失败：$error');
+      }
     }
+  }
+
+  /// 按归一化坐标裁一块图并落盘。
+  Future<String> _cropAndSave(
+    img.Image source,
+    Rect rect,
+    int index,
+  ) async {
+    final x = (rect.left * source.width).round().clamp(0, source.width - 1);
+    final y = (rect.top * source.height).round().clamp(0, source.height - 1);
+    final w = (rect.width * source.width).round().clamp(1, source.width - x);
+    final h = (rect.height * source.height).round().clamp(1, source.height - y);
+
+    final crop = img.copyCrop(source, x: x, y: y, width: w, height: h);
+    return persistIntakeFileBytes(
+      img.encodeJpg(crop, quality: 92),
+      'scan_${DateTime.now().microsecondsSinceEpoch}_$index.jpg',
+    );
   }
 
   void _fail(String message) {
