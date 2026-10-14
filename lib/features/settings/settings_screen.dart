@@ -5,6 +5,7 @@ import '../../app/theme/octopus_theme.dart';
 import '../../data/database.dart';
 import '../../providers/app_providers.dart';
 import '../shell/app_shell.dart' show showProfileEditor;
+import 'backup_actions.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -192,16 +193,38 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
 
+        // -- 数据备份 ---------------------------------------------------------
+        const _SectionLabel('数据备份'),
+        _Card(
+          children: [
+            _NavRow(
+              title: '导出备份',
+              subtitle: '打包数据库和全部图片，然后分享出去',
+              trailingIcon: Icons.ios_share,
+              onTap: () => exportBackup(context, ref),
+            ),
+            _NavRow(
+              title: '从备份恢复',
+              subtitle: '⚠️ 会覆盖当前全部数据',
+              trailingIcon: Icons.settings_backup_restore,
+              onTap: () => importBackup(context, ref),
+            ),
+          ],
+        ),
+        const BackupHint(),
+
         // -- 关于 -------------------------------------------------------------
         const _SectionLabel('关于'),
         _Card(
           children: [
-            const _InfoRow(title: '版本', value: '0.1.0（开发中）'),
-            const _InfoRow(title: '当前阶段', value: '阶段一 · 手动切题，未接 OCR'),
+            const _InfoRow(title: '版本', value: '0.8.0'),
+            const _InfoRow(title: '数据库', value: 'v5'),
+            const _InfoRow(title: '功能', value: 'OCR · 批改 · 复习计划'),
           ],
         ),
         const _SectionHint(
-          '阶段一还没有接入 OCR 和 AI，所以「图形重绘」和「变式题」尚未生效。',
+          'OCR 和批改都需要联网调 DeepSeek，本地识别（ML Kit）完全离线。'
+          '所有题目照片都存在这台手机上，不会自动上传。',
         ),
       ],
     );

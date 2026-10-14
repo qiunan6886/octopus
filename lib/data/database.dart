@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../services/backup_service.dart';
 import '../services/review_schedule.dart';
 import 'models.dart';
 
@@ -722,5 +724,58 @@ class OctopusDatabase {
       [worksheetId],
     );
     return rows.map(Question.fromMap).toList();
+  }
+
+  // -------------------------------------------------------------------------
+  // 备份与恢复
+  // -------------------------------------------------------------------------
+
+  /// 把数据库的一致性快照写到 [target]。
+  ///
+  /// 用 `VACUUM INTO` 而不是直接复制文件：SQLite 在写入过程中文件处于中间状态，
+  /// 直接读字节可能拿到半个事务，备份出来的库打不开。VACUUM INTO 由 SQLite
+  /// 自己保证一致性。
+  Future<void> snapshotTo(String target) async {
+    final file = File(target);
+    if (file.existsSync()) file.deleteSync();
+    // 路径里的单引号要转义，否则拼出来的 SQL 是坏的。
+    final escaped = target.replaceAll("'", "''");
+    await _db.execute("VACUUM INTO '$escaped'");
+  }
+
+  /// 备份恢复之后，把数据库里记录的图片路径改成本机的。
+  ///
+  /// **这一步不能省**：备份里存的是**原设备的绝对路径**，换设备或重装之后那些
+  /// 路径都不存在了。不重写的话图片文件明明就在旁边，界面上却全是打不开。
+  ///
+  /// 返回改写了多少行，便于界面告知用户。
+  Future<int> rewriteImagePaths(String newImagesDir) async {
+    var changed = 0;
+    for (final entry in imagePathColumns.entries) {
+      final table = entry.key;
+      for (final column in entry.value) {
+        final rows = await _db.query(
+          table,
+          columns: ['id', column],
+          where: '$column IS NOT NULL AND $column != ?',
+          whereArgs: [''],
+        );
+        for (final row in rows) {
+          final old = row[column] as String?;
+          if (old == null) continue;
+          final rewritten = remapImagePath(old, newImagesDir);
+          if (rewritten == old) continue;
+          await _db.update(
+            table,
+            {column: rewritten},
+            where: 'id = ?',
+            whereArgs: [row['id']],
+          );
+          changed++;
+        }
+      }
+    }
+    _notify();
+    return changed;
   }
 }
