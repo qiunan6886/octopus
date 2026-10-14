@@ -54,12 +54,16 @@ a.card.primary { background:var(--softbg); border-color:var(--accent); }
     <div class="d">如需下载或批注，用这个。</div>
   </a>
 
-  <a class="card primary" href="Octopus-v0.11.0-arm64.apk">
-    <div class="t">下载 APK（v0.11.0）↓</div>
+  <!-- 固定链接：永远指向最新版。带版本号的文件每版都会换名字，
+       聊天记录里的旧链接会失效——这个不会。 -->
+  <a class="card primary" href="octopus.apk">
+    <div class="t">下载 APK（最新版 v0.11.0）↓</div>
     <div class="d">33.7 MB，arm64-v8a。含离线 OCR 模型。装之前需要允许「未知来源」。</div>
   </a>
 
   <p class="note">
+    这个链接永远指向最新版，可以收藏：
+    <code>https://qiunan6886.github.io/octopus/octopus.apk</code><br><br>
     v0.11.0：<strong>混合切题做彻底了</strong>——模型给边界、文字行定位置，
     并且容忍模型框的偏差、解决相邻框重叠。<br>
     已实现：多孩子隔离 · 三套主题 · AI 扫描录入 · 手动框选 · 本地 OCR · 拍照批改 ·
